@@ -169,7 +169,7 @@ gameStateInformation value =
                     [ Events.onClick
                         (RequestImage
                             { game = game
-                            , model = "TicTacToe"
+                            , model = "rollout"
                             , power = 50
                             , temperature = 0.5
                             , exploration = 0.7
