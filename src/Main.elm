@@ -8,11 +8,8 @@ import Html exposing (Html)
 import Http
 import Json.Decode as Decode exposing (Value)
 import Json.Encode as Encode
-import List.Extra as List
+import Layer exposing (DisplayLayer, HeatmapColor(..), actionRenderer, heatmapLayerRenderer, renderMany, tokenRenderer)
 import RemoteData exposing (WebData)
-import Svg exposing (Svg)
-import Svg.Attributes
-import Svg.Events
 
 
 main : Program () Model Msg
@@ -182,22 +179,6 @@ gameStateInformation value =
         value
 
 
-dummyHeatmap : Layer Float
-dummyHeatmap =
-    { width = 3
-    , height = 3
-    , data = [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]
-    }
-
-
-dummyTokenData : Layer String
-dummyTokenData =
-    { width = 3
-    , height = 3
-    , data = [ "A", "B", "C", "D", "E", "F", "ℝ", "O", "X" ]
-    }
-
-
 listOfGames : Model -> Element Msg
 listOfGames model =
     Element.row [ spacing 10 ]
@@ -255,23 +236,23 @@ imageView model =
     webDataEasyWrapper
         (\image ->
             Element.row [ spacing 10 ]
-                [ prepareImage image |> renderTable
+                [ prepareImage image |> renderMany |> Element.html
                 ]
         )
         model.image
 
 
-prepareImage : Image -> List DisplayLayer
+prepareImage : Image -> List (DisplayLayer Msg)
 prepareImage image =
     image.value.layers
         |> List.map (prepareImageLayer image)
 
 
-prepareImageLayer : Image -> LayerData -> DisplayLayer
+prepareImageLayer : Image -> LayerData -> DisplayLayer Msg
 prepareImageLayer image layer =
     case layer of
         LayerDataHeatmap value ->
-            DisplayLayerFloat
+            Layer.DisplayLayerFloat
                 (heatmapLayerRenderer
                     { min = value.min
                     , max = value.max
@@ -284,7 +265,7 @@ prepareImageLayer image layer =
                 }
 
         LayerDataTokens value ->
-            DisplayLayerString
+            Layer.DisplayLayerString
                 (tokenRenderer { color = "black" })
                 { width = image.value.width
                 , height = image.value.height
@@ -292,7 +273,7 @@ prepareImageLayer image layer =
                 }
 
         LayerDataActions value ->
-            DisplayLayerInt
+            Layer.DisplayLayerInt
                 (actionRenderer
                     { event =
                         \i ->
@@ -307,292 +288,6 @@ prepareImageLayer image layer =
                 , height = image.value.height
                 , data = value.data
                 }
-
-
-
---------------------------------------------------------------------------------
--- Default Layer Renderer Definitions ------------------------------------------
---------------------------------------------------------------------------------
-
-
-{-| A layer that just renders empty squares. Can be used to create a grid.
--}
-dummyLayerRenderer : LayerRenderer a
-dummyLayerRenderer =
-    { cellWidth = 100
-    , cellHeight = 100
-    , cellRenderer =
-        \_ ->
-            Svg.rect
-                [ Svg.Attributes.width "100"
-                , Svg.Attributes.height "100"
-                , Svg.Attributes.fill "white"
-                , Svg.Attributes.stroke "black"
-                ]
-                []
-    }
-
-
-type alias HeatmapRendererConfig =
-    { min : Float
-    , max : Float
-    , color : HeatmapColor
-    }
-
-
-type HeatmapColor
-    = GrayscaleHeatmap
-    | BlueHeatmap
-
-
-heatmapColor : HeatmapColor -> Float -> String
-heatmapColor color intensity =
-    case color of
-        GrayscaleHeatmap ->
-            let
-                intensity255 =
-                    String.fromFloat (255 * intensity)
-            in
-            "rgb(" ++ intensity255 ++ "," ++ intensity255 ++ "," ++ intensity255 ++ ")"
-
-        BlueHeatmap ->
-            let
-                intensity255 =
-                    String.fromFloat (255 * intensity)
-            in
-            "rgb(0, 0," ++ intensity255 ++ ")"
-
-
-heatmapLayerRenderer : HeatmapRendererConfig -> LayerRenderer Float
-heatmapLayerRenderer config =
-    let
-        intensity value =
-            (value - config.min)
-                / (config.max - config.min)
-                |> max 0
-                |> min 1
-    in
-    { cellWidth = 100
-    , cellHeight = 100
-    , cellRenderer =
-        \data ->
-            Svg.rect
-                [ Svg.Attributes.width "100"
-                , Svg.Attributes.height "100"
-                , Svg.Attributes.fill (heatmapColor config.color (intensity data))
-                ]
-                []
-    }
-
-
-type alias TokenRendererConfig =
-    { color : String
-    }
-
-
-tokenRenderer : TokenRendererConfig -> LayerRenderer String
-tokenRenderer config =
-    { cellWidth = 100
-    , cellHeight = 100
-    , cellRenderer =
-        \data ->
-            Svg.text_
-                [ Svg.Attributes.textAnchor "middle"
-                , Svg.Attributes.transform "translate(50, 85)"
-                , Svg.Attributes.fontSize "90px"
-                , Svg.Attributes.fill config.color
-                ]
-                [ Svg.text data
-                ]
-    }
-
-
-type alias ActionRendererConfig a =
-    { event : a -> Maybe Msg
-    }
-
-
-actionRenderer : ActionRendererConfig a -> LayerRenderer a
-actionRenderer config =
-    { cellWidth = 100
-    , cellHeight = 100
-    , cellRenderer =
-        \value ->
-            let
-                attributes =
-                    [ Svg.Attributes.width "100"
-                    , Svg.Attributes.height "100"
-                    , Svg.Attributes.fill "rgba(0,0,0,0)"
-                    , Svg.Attributes.stroke "black"
-                    ]
-            in
-            case config.event value of
-                Just msg ->
-                    Svg.rect (Svg.Events.onClick msg :: attributes) []
-
-                Nothing ->
-                    Svg.g [] []
-    }
-
-
-
---------------------------------------------------------------------------------
--- Svg Tables ------------------------------------------------------------------
---------------------------------------------------------------------------------
-
-
-{-| The data we get from the server is usually interpreted as a rectangular grid.
--}
-type alias Layer a =
-    { width : Int
-    , height : Int
-    , data : List a
-    }
-
-
-type alias LayerRenderer a =
-    { cellRenderer : a -> Svg Msg
-    , cellWidth : Int
-    , cellHeight : Int
-    }
-
-
-type DisplayLayer
-    = DisplayLayerFloat (LayerRenderer Float) (Layer Float)
-    | DisplayLayerString (LayerRenderer String) (Layer String)
-    | DisplayLayerInt (LayerRenderer Int) (Layer Int)
-    | NoOpDisplayLayer
-
-
-renderTable : List DisplayLayer -> Element Msg
-renderTable displayLayer =
-    let
-        width =
-            displayLayer
-                |> List.head
-                |> Maybe.map widthDisplayLayer
-                |> Maybe.withDefault 0
-
-        height =
-            displayLayer
-                |> List.head
-                |> Maybe.map heightDisplayLayer
-                |> Maybe.withDefault 0
-
-        viewBox =
-            String.join
-                " "
-                [ "0"
-                , "0"
-                , String.fromInt width
-                , String.fromInt height
-                ]
-                |> Svg.Attributes.viewBox
-
-        attributes =
-            [ Svg.Attributes.width <| String.fromInt width
-            , Svg.Attributes.height <| String.fromInt height
-            , viewBox
-            ]
-    in
-    Element.html
-        (Svg.svg attributes (List.map renderDisplayLayer displayLayer))
-
-
-renderTableSvg : LayerRenderer a -> Layer a -> Svg Msg
-renderTableSvg renderer data =
-    List.map
-        (\info ->
-            Svg.g
-                [ Svg.Attributes.transform
-                    ("translate("
-                        ++ String.fromInt (renderer.cellWidth * info.x)
-                        ++ ","
-                        ++ String.fromInt (renderer.cellHeight * info.y)
-                        ++ ")"
-                    )
-                ]
-                [ renderer.cellRenderer info.data ]
-        )
-        (indexedData data)
-        |> Svg.g []
-
-
-type alias CellRenderInfo a =
-    { x : Int
-    , y : Int
-    , data : a
-    }
-
-
-indexedData : Layer a -> List (CellRenderInfo a)
-indexedData data =
-    let
-        xRange =
-            List.range 0 (data.width - 1)
-
-        yRange =
-            List.range 0 (data.height - 1)
-    in
-    List.map
-        (\x ->
-            List.filterMap
-                (\y ->
-                    List.getAt (x + data.width * y) data.data
-                        |> Maybe.map (\entry -> { x = x, y = y, data = entry })
-                )
-                yRange
-        )
-        xRange
-        |> List.concat
-
-
-renderDisplayLayer : DisplayLayer -> Svg Msg
-renderDisplayLayer layer =
-    case layer of
-        DisplayLayerFloat renderer data ->
-            renderTableSvg renderer data
-
-        DisplayLayerString renderer data ->
-            renderTableSvg renderer data
-
-        DisplayLayerInt renderer data ->
-            renderTableSvg renderer data
-
-        NoOpDisplayLayer ->
-            Svg.g [] []
-
-
-widthDisplayLayer : DisplayLayer -> Int
-widthDisplayLayer layer =
-    case layer of
-        DisplayLayerFloat renderer data ->
-            data.width * renderer.cellWidth
-
-        DisplayLayerString renderer data ->
-            data.width * renderer.cellWidth
-
-        DisplayLayerInt renderer data ->
-            data.width * renderer.cellWidth
-
-        NoOpDisplayLayer ->
-            0
-
-
-heightDisplayLayer : DisplayLayer -> Int
-heightDisplayLayer layer =
-    case layer of
-        DisplayLayerFloat renderer data ->
-            data.height * renderer.cellWidth
-
-        DisplayLayerString renderer data ->
-            data.height * renderer.cellWidth
-
-        DisplayLayerInt renderer data ->
-            data.height * renderer.cellWidth
-
-        NoOpDisplayLayer ->
-            0
 
 
 
