@@ -129,19 +129,6 @@ view model =
         , listOfGames model
         , listOfModels model
         , gameStateInformation model.gameState
-        , renderTable
-            [ DisplayLayerFloat
-                (heatmapLayerRenderer
-                    { min = 10
-                    , max = 0
-                    , color = GrayscaleHeatmap
-                    }
-                )
-                dummyHeatmap
-            , DisplayLayerString
-                (tokenRenderer { color = "red" })
-                dummyTokenData
-            ]
         , imageView model
         ]
 
@@ -222,7 +209,47 @@ webDataEasyWrapper ifPresent data =
 
 imageView : Model -> Element Msg
 imageView model =
-    webDataEasyWrapper (\image -> Element.text "parsed it!") model.image
+    webDataEasyWrapper
+        (\image ->
+            prepareImage image |> renderTable
+        )
+        model.image
+
+
+prepareImage : Image -> List DisplayLayer
+prepareImage image =
+    let
+        width =
+            image.value.width
+    in
+    image.value.layers
+        |> List.map
+            (\layer ->
+                case layer of
+                    LayerDataHeatmap value ->
+                        DisplayLayerFloat
+                            (heatmapLayerRenderer
+                                { min = value.min
+                                , max = value.max
+                                , color = GrayscaleHeatmap
+                                }
+                            )
+                            { width = image.value.width
+                            , height = image.value.height
+                            , data = value.data
+                            }
+
+                    LayerDataTokens value ->
+                        DisplayLayerString
+                            (tokenRenderer { color = "black" })
+                            { width = image.value.width
+                            , height = image.value.height
+                            , data = value.data
+                            }
+
+                    LayerDataActions value ->
+                        NoOpDisplayLayer
+            )
 
 
 
@@ -348,6 +375,7 @@ type alias LayerRenderer a =
 type DisplayLayer
     = DisplayLayerFloat (LayerRenderer Float) (Layer Float)
     | DisplayLayerString (LayerRenderer String) (Layer String)
+    | NoOpDisplayLayer
 
 
 renderTable : List DisplayLayer -> Element Msg
@@ -442,6 +470,9 @@ renderDisplayLayer layer =
         DisplayLayerString renderer data ->
             renderTableSvg renderer data
 
+        NoOpDisplayLayer ->
+            Svg.g [] []
+
 
 widthDisplayLayer : DisplayLayer -> Int
 widthDisplayLayer layer =
@@ -452,6 +483,9 @@ widthDisplayLayer layer =
         DisplayLayerString renderer data ->
             data.width * renderer.cellWidth
 
+        NoOpDisplayLayer ->
+            0
+
 
 heightDisplayLayer : DisplayLayer -> Int
 heightDisplayLayer layer =
@@ -461,6 +495,9 @@ heightDisplayLayer layer =
 
         DisplayLayerString renderer data ->
             data.height * renderer.cellWidth
+
+        NoOpDisplayLayer ->
+            0
 
 
 
@@ -527,8 +564,8 @@ type alias HeatmapValue =
     { data : List Float
     , name : String
     , style : String
-    , min : Int
-    , max : Int
+    , min : Float
+    , max : Float
     }
 
 
@@ -596,8 +633,8 @@ decodeHeatmapValue =
         (Decode.field "data" (Decode.list Decode.float))
         (Decode.field "name" Decode.string)
         (Decode.field "style" Decode.string)
-        (Decode.field "min" Decode.int)
-        (Decode.field "max" Decode.int)
+        (Decode.field "min" Decode.float)
+        (Decode.field "max" Decode.float)
 
 
 decodeTokens : Decode.Decoder LayerData
