@@ -7,6 +7,7 @@ import Element.Font as Font
 import Html exposing (Html)
 import Http
 import Json.Decode as Decode exposing (Value)
+import Json.Encode as Encode
 import List.Extra as List
 import RemoteData exposing (WebData)
 import Svg exposing (Svg)
@@ -27,7 +28,10 @@ main =
 type Msg
     = GotGames (Result Http.Error (List String))
     | GotModels (Result Http.Error (List ModelDescription))
+    | RequestImage ImageRequest
     | GotImage (Result Http.Error Image)
+    | RequestGameState String
+    | GotGameState (Result Http.Error Value)
     | SelectGameType String
     | SelectModel String
     | SetLastAction Int
@@ -39,7 +43,7 @@ type alias Model =
     , selectedGameType : Maybe String
     , models : WebData (List ModelDescription)
     , selectedModel : Maybe String
-    , gameState : Maybe Value
+    , gameState : WebData Value
     , image : WebData Image
     , lastAction : Int
     }
@@ -66,7 +70,7 @@ initModel =
     , selectedGameType = Nothing
     , models = RemoteData.Loading
     , selectedModel = Nothing
-    , gameState = Nothing
+    , gameState = RemoteData.NotAsked
     , image = RemoteData.Loading
     , lastAction = -1
     }
@@ -97,11 +101,25 @@ update msg model =
         GotModels response ->
             ( { model | models = RemoteData.fromResult response }, Cmd.none )
 
+        RequestImage request ->
+            ( { model | image = RemoteData.Loading }, getImage request )
+
         GotImage response ->
             ( { model | image = RemoteData.fromResult response }, Cmd.none )
 
+        RequestGameState gameType ->
+            ( { model | gameState = RemoteData.Loading }, getNewGame gameType )
+
+        GotGameState response ->
+            ( { model | gameState = RemoteData.fromResult response }, Cmd.none )
+
         SelectGameType newType ->
-            ( { model | selectedGameType = Just newType, gameState = Nothing }, Cmd.none )
+            ( { model
+                | selectedGameType = Just newType
+                , gameState = RemoteData.NotAsked
+              }
+            , Cmd.none
+            )
 
         SelectModel newModel ->
             ( { model | selectedModel = Just newModel }, Cmd.none )
@@ -141,14 +159,27 @@ view model =
         ]
 
 
-gameStateInformation : Maybe Value -> Element a
+gameStateInformation : WebData Value -> Element Msg
 gameStateInformation value =
-    case value of
-        Just _ ->
-            Element.text "We have a game state."
-
-        Nothing ->
-            Element.text "We don't have a game state."
+    webDataEasyWrapper
+        (\game ->
+            Element.row [ spacing 10 ]
+                [ Element.text "We have a game state."
+                , Element.el
+                    [ Events.onClick
+                        (RequestImage
+                            { game = game
+                            , model = "TicTacToe"
+                            , power = 50
+                            , temperature = 0.5
+                            , exploration = 0.7
+                            }
+                        )
+                    ]
+                    (Element.text "Try to crash")
+                ]
+        )
+        value
 
 
 dummyHeatmap : Layer Float
@@ -169,12 +200,16 @@ dummyTokenData =
 
 listOfGames : Model -> Element Msg
 listOfGames model =
-    webDataEasyWrapper
-        (\list ->
-            Element.row [ spacing 10 ]
-                (List.map (chooseButton SelectGameType model.selectedGameType) list)
-        )
-        model.gameTypes
+    Element.row [ spacing 10 ]
+        [ Element.text "Supported Game Types:"
+        , webDataEasyWrapper
+            (\list ->
+                Element.row [ spacing 10 ]
+                    (List.map (chooseButton SelectGameType model.selectedGameType) list)
+            )
+            model.gameTypes
+        , Element.el [ Events.onClick (RequestGameState "TicTacToe") ] (Element.text "Create Game")
+        ]
 
 
 listOfModels : Model -> Element Msg
@@ -219,7 +254,9 @@ imageView : Model -> Element Msg
 imageView model =
     webDataEasyWrapper
         (\image ->
-            prepareImage image |> renderTable
+            Element.row [ spacing 10 ]
+                [ prepareImage image |> renderTable
+                ]
         )
         model.image
 
@@ -587,6 +624,43 @@ decodeModelDescription =
         (Decode.field "game" Decode.string)
         (Decode.field "features" (Decode.list Decode.string))
         (Decode.field "params" Decode.int)
+
+
+getNewGame : String -> Cmd Msg
+getNewGame gameType =
+    Http.get
+        { url = "/api/create/" ++ gameType
+        , expect = Http.expectJson GotGameState Decode.value
+        }
+
+
+type alias ImageRequest =
+    { game : Value
+    , model : String
+    , power : Int
+    , temperature : Float
+    , exploration : Float
+    }
+
+
+getImage : ImageRequest -> Cmd Msg
+getImage config =
+    Http.post
+        { url = "/api/apply/visual"
+        , body = Http.jsonBody (encodeImageRequest config)
+        , expect = Http.expectJson GotGameState Decode.value
+        }
+
+
+encodeImageRequest : ImageRequest -> Value
+encodeImageRequest record =
+    Encode.object
+        [ ( "game", record.game )
+        , ( "model", Encode.string <| record.model )
+        , ( "power", Encode.int <| record.power )
+        , ( "temperature", Encode.float <| record.temperature )
+        , ( "exploration", Encode.float <| record.exploration )
+        ]
 
 
 getDummyImage : Cmd Msg
