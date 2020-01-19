@@ -90,10 +90,11 @@ view model =
             (heatmapLayerRenderer
                 { min = 10
                 , max = 0
-                , color = GrayscaleHeatmap
+                , color = BlueHeatmap
                 }
             )
             dummyHeatmap
+        , renderTable (tokenRenderer { color = "red" }) dummyTokenData
         ]
 
 
@@ -110,6 +111,14 @@ dummyHeatmap =
     { width = 3
     , height = 3
     , data = [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]
+    }
+
+
+dummyTokenData : Layer String
+dummyTokenData =
+    { width = 3
+    , height = 3
+    , data = [ "A", "B", "C", "D", "E", "F", "G", "H", "I" ]
     }
 
 
@@ -139,6 +148,7 @@ dummyLayerRenderer =
 
 type HeatmapColor
     = GrayscaleHeatmap
+    | BlueHeatmap
 
 
 heatmapColor : HeatmapColor -> Float -> String
@@ -150,6 +160,13 @@ heatmapColor color intensity =
                     String.fromFloat (255 * intensity)
             in
             "rgb(" ++ intensity255 ++ "," ++ intensity255 ++ "," ++ intensity255 ++ ")"
+
+        BlueHeatmap ->
+            let
+                intensity255 =
+                    String.fromFloat (255 * intensity)
+            in
+            "rgb(0, 0," ++ intensity255 ++ ")"
 
 
 heatmapLayerRenderer : { min : Float, max : Float, color : HeatmapColor } -> LayerRenderer Float
@@ -171,6 +188,23 @@ heatmapLayerRenderer config =
                 , Svg.Attributes.fill (heatmapColor config.color (intensity data))
                 ]
                 []
+    }
+
+
+tokenRenderer : { color : String } -> LayerRenderer String
+tokenRenderer config =
+    { cellWidth = 100
+    , cellHeight = 100
+    , cellRenderer =
+        \data ->
+            Svg.text_
+                [ Svg.Attributes.textAnchor "middle"
+                , Svg.Attributes.transform "translate(50, 90)"
+                , Svg.Attributes.fontSize "80px"
+                , Svg.Attributes.fill config.color
+                ]
+                [ Svg.text data
+                ]
     }
 
 
