@@ -6,8 +6,6 @@ renders data it gets from a REST api.
 
 https://github.com/roSievers/Jtac.jl/
 
-To compile, run 
+Make sure that you have a running `julia server/aiserver.jl` and then run
 
-    elm-live src/Main.elm --no-server
-
-and then symlink the index.html into a position where the Jtac server finds it.
+    elm-live src/Main.elm -y http://localhost:4242 -x /api
