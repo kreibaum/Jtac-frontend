@@ -2,9 +2,6 @@ module Main exposing (main)
 
 import Browser exposing (Document)
 import Element exposing (Element, padding, spacing)
-import Element.Background as Background
-import Element.Border as Border
-import Element.Font as Font
 import Html exposing (Html)
 import Http
 import Json.Decode as Decode
@@ -25,13 +22,22 @@ main =
 
 
 type Msg
-    = NoOp
-    | GotGames (Result Http.Error (List String))
+    = GotGames (Result Http.Error (List String))
+    | GotModels (Result Http.Error (List ModelDescription))
 
 
 type alias Model =
     { pageTitle : String
     , gameTypes : WebData (List String)
+    , models : WebData (List ModelDescription)
+    }
+
+
+type alias ModelDescription =
+    { name : String
+    , game : String
+    , features : List String
+    , params : Int
     }
 
 
@@ -45,12 +51,13 @@ initModel : Model
 initModel =
     { pageTitle = "Hello, World!"
     , gameTypes = RemoteData.Loading
+    , models = RemoteData.Loading
     }
 
 
 init : a -> ( Model, Cmd Msg )
 init _ =
-    ( initModel, Cmd.batch [ getGames ] )
+    ( initModel, Cmd.batch [ getGames, getModels ] )
 
 
 subscriptions : Model -> Sub Msg
@@ -67,11 +74,11 @@ subscriptions _ =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        NoOp ->
-            ( model, Cmd.none )
-
         GotGames response ->
             ( { model | gameTypes = RemoteData.fromResult response }, Cmd.none )
+
+        GotModels response ->
+            ( { model | models = RemoteData.fromResult response }, Cmd.none )
 
 
 
@@ -98,8 +105,7 @@ view model =
         [ Element.text "Exploring states in Jtac.jl"
         , Element.text "Written in Elm."
         , listOfGames model
-
-        -- , renderTable dummyLayerRenderer dummyData
+        , listOfModels model
         , renderTable
             [ DisplayLayerFloat
                 (heatmapLayerRenderer
@@ -114,14 +120,6 @@ view model =
                 dummyTokenData
             ]
         ]
-
-
-dummyData : Layer ()
-dummyData =
-    { width = 7
-    , height = 4
-    , data = List.repeat (7 * 4) ()
-    }
 
 
 dummyHeatmap : Layer Float
@@ -142,9 +140,29 @@ dummyTokenData =
 
 listOfGames : Model -> Element Msg
 listOfGames model =
-    case model.gameTypes of
-        RemoteData.Success list ->
-            Element.row [ spacing 10 ] (List.map Element.text list)
+    webDataEasyWrapper
+        (\list -> Element.row [ spacing 10 ] (List.map Element.text list))
+        model.gameTypes
+
+
+listOfModels : Model -> Element Msg
+listOfModels model =
+    webDataEasyWrapper
+        (\list ->
+            Element.row [ spacing 10 ]
+                (List.map
+                    (\m -> Element.text m.name)
+                    list
+                )
+        )
+        model.models
+
+
+webDataEasyWrapper : (a -> Element Msg) -> WebData a -> Element Msg
+webDataEasyWrapper ifPresent data =
+    case data of
+        RemoteData.Success success ->
+            ifPresent success
 
         RemoteData.Failure _ ->
             Element.text "Http error"
@@ -169,7 +187,7 @@ dummyLayerRenderer =
     { cellWidth = 100
     , cellHeight = 100
     , cellRenderer =
-        \data ->
+        \_ ->
             Svg.rect
                 [ Svg.Attributes.width "100"
                 , Svg.Attributes.height "100"
@@ -177,6 +195,13 @@ dummyLayerRenderer =
                 , Svg.Attributes.stroke "black"
                 ]
                 []
+    }
+
+
+type alias HeatmapRendererConfig =
+    { min : Float
+    , max : Float
+    , color : HeatmapColor
     }
 
 
@@ -203,7 +228,7 @@ heatmapColor color intensity =
             "rgb(0, 0," ++ intensity255 ++ ")"
 
 
-heatmapLayerRenderer : { min : Float, max : Float, color : HeatmapColor } -> LayerRenderer Float
+heatmapLayerRenderer : HeatmapRendererConfig -> LayerRenderer Float
 heatmapLayerRenderer config =
     let
         intensity value =
@@ -225,7 +250,12 @@ heatmapLayerRenderer config =
     }
 
 
-tokenRenderer : { color : String } -> LayerRenderer String
+type alias TokenRendererConfig =
+    { color : String
+    }
+
+
+tokenRenderer : TokenRendererConfig -> LayerRenderer String
 tokenRenderer config =
     { cellWidth = 100
     , cellHeight = 100
@@ -306,13 +336,6 @@ renderTable displayLayer =
 
 renderTableSvg : LayerRenderer a -> Layer a -> Svg Msg
 renderTableSvg renderer data =
-    let
-        xRange =
-            List.range 0 (data.width - 1)
-
-        yRange =
-            List.range 0 (data.height - 1)
-    in
     List.map
         (\info ->
             Svg.g
@@ -401,3 +424,20 @@ getGames =
         { url = "/api/games"
         , expect = Http.expectJson GotGames (Decode.list Decode.string)
         }
+
+
+getModels : Cmd Msg
+getModels =
+    Http.get
+        { url = "/api/models"
+        , expect = Http.expectJson GotModels (Decode.list decodeModelDescription)
+        }
+
+
+decodeModelDescription : Decode.Decoder ModelDescription
+decodeModelDescription =
+    Decode.map4 ModelDescription
+        (Decode.field "name" Decode.string)
+        (Decode.field "game" Decode.string)
+        (Decode.field "features" (Decode.list Decode.string))
+        (Decode.field "params" Decode.int)
