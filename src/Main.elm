@@ -11,6 +11,7 @@ import List.Extra as List
 import RemoteData exposing (WebData)
 import Svg exposing (Svg)
 import Svg.Attributes
+import Svg.Events
 
 
 main : Program () Model Msg
@@ -29,6 +30,7 @@ type Msg
     | GotImage (Result Http.Error Image)
     | SelectGameType String
     | SelectModel String
+    | SetLastAction Int
 
 
 type alias Model =
@@ -39,6 +41,7 @@ type alias Model =
     , selectedModel : Maybe String
     , gameState : Maybe Value
     , image : WebData Image
+    , lastAction : Int
     }
 
 
@@ -65,6 +68,7 @@ initModel =
     , selectedModel = Nothing
     , gameState = Nothing
     , image = RemoteData.Loading
+    , lastAction = -1
     }
 
 
@@ -102,6 +106,9 @@ update msg model =
         SelectModel newModel ->
             ( { model | selectedModel = Just newModel }, Cmd.none )
 
+        SetLastAction newAction ->
+            ( { model | lastAction = newAction }, Cmd.none )
+
 
 
 --------------------------------------------------------------------------------
@@ -129,6 +136,7 @@ view model =
         , listOfGames model
         , listOfModels model
         , gameStateInformation model.gameState
+        , Element.text ("Last action: " ++ String.fromInt model.lastAction)
         , imageView model
         ]
 
@@ -218,38 +226,50 @@ imageView model =
 
 prepareImage : Image -> List DisplayLayer
 prepareImage image =
-    let
-        width =
-            image.value.width
-    in
     image.value.layers
-        |> List.map
-            (\layer ->
-                case layer of
-                    LayerDataHeatmap value ->
-                        DisplayLayerFloat
-                            (heatmapLayerRenderer
-                                { min = value.min
-                                , max = value.max
-                                , color = GrayscaleHeatmap
-                                }
-                            )
-                            { width = image.value.width
-                            , height = image.value.height
-                            , data = value.data
-                            }
+        |> List.map (prepareImageLayer image)
 
-                    LayerDataTokens value ->
-                        DisplayLayerString
-                            (tokenRenderer { color = "black" })
-                            { width = image.value.width
-                            , height = image.value.height
-                            , data = value.data
-                            }
 
-                    LayerDataActions value ->
-                        NoOpDisplayLayer
-            )
+prepareImageLayer : Image -> LayerData -> DisplayLayer
+prepareImageLayer image layer =
+    case layer of
+        LayerDataHeatmap value ->
+            DisplayLayerFloat
+                (heatmapLayerRenderer
+                    { min = value.min
+                    , max = value.max
+                    , color = GrayscaleHeatmap
+                    }
+                )
+                { width = image.value.width
+                , height = image.value.height
+                , data = value.data
+                }
+
+        LayerDataTokens value ->
+            DisplayLayerString
+                (tokenRenderer { color = "black" })
+                { width = image.value.width
+                , height = image.value.height
+                , data = value.data
+                }
+
+        LayerDataActions value ->
+            DisplayLayerInt
+                (actionRenderer
+                    { event =
+                        \i ->
+                            if i > 0 then
+                                Just (SetLastAction i)
+
+                            else
+                                Nothing
+                    }
+                )
+                { width = image.value.width
+                , height = image.value.height
+                , data = value.data
+                }
 
 
 
@@ -350,6 +370,34 @@ tokenRenderer config =
     }
 
 
+type alias ActionRendererConfig a =
+    { event : a -> Maybe Msg
+    }
+
+
+actionRenderer : ActionRendererConfig a -> LayerRenderer a
+actionRenderer config =
+    { cellWidth = 100
+    , cellHeight = 100
+    , cellRenderer =
+        \value ->
+            let
+                attributes =
+                    [ Svg.Attributes.width "100"
+                    , Svg.Attributes.height "100"
+                    , Svg.Attributes.fill "rgba(0,0,0,0)"
+                    , Svg.Attributes.stroke "black"
+                    ]
+            in
+            case config.event value of
+                Just msg ->
+                    Svg.rect (Svg.Events.onClick msg :: attributes) []
+
+                Nothing ->
+                    Svg.g [] []
+    }
+
+
 
 --------------------------------------------------------------------------------
 -- Svg Tables ------------------------------------------------------------------
@@ -375,6 +423,7 @@ type alias LayerRenderer a =
 type DisplayLayer
     = DisplayLayerFloat (LayerRenderer Float) (Layer Float)
     | DisplayLayerString (LayerRenderer String) (Layer String)
+    | DisplayLayerInt (LayerRenderer Int) (Layer Int)
     | NoOpDisplayLayer
 
 
@@ -470,6 +519,9 @@ renderDisplayLayer layer =
         DisplayLayerString renderer data ->
             renderTableSvg renderer data
 
+        DisplayLayerInt renderer data ->
+            renderTableSvg renderer data
+
         NoOpDisplayLayer ->
             Svg.g [] []
 
@@ -483,6 +535,9 @@ widthDisplayLayer layer =
         DisplayLayerString renderer data ->
             data.width * renderer.cellWidth
 
+        DisplayLayerInt renderer data ->
+            data.width * renderer.cellWidth
+
         NoOpDisplayLayer ->
             0
 
@@ -494,6 +549,9 @@ heightDisplayLayer layer =
             data.height * renderer.cellWidth
 
         DisplayLayerString renderer data ->
+            data.height * renderer.cellWidth
+
+        DisplayLayerInt renderer data ->
             data.height * renderer.cellWidth
 
         NoOpDisplayLayer ->
