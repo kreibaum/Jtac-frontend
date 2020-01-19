@@ -6,7 +6,10 @@ import Element.Background as Background
 import Element.Border as Border
 import Element.Font as Font
 import Html exposing (Html)
+import Http
+import Json.Decode as Decode
 import List.Extra as List
+import RemoteData exposing (WebData)
 import Svg exposing (Svg)
 import Svg.Attributes
 
@@ -23,10 +26,12 @@ main =
 
 type Msg
     = NoOp
+    | GotGames (Result Http.Error (List String))
 
 
 type alias Model =
     { pageTitle : String
+    , gameTypes : WebData (List String)
     }
 
 
@@ -38,12 +43,14 @@ type alias Model =
 
 initModel : Model
 initModel =
-    { pageTitle = "Hello, World!" }
+    { pageTitle = "Hello, World!"
+    , gameTypes = RemoteData.Loading
+    }
 
 
 init : a -> ( Model, Cmd Msg )
 init _ =
-    ( initModel, Cmd.none )
+    ( initModel, Cmd.batch [ getGames ] )
 
 
 subscriptions : Model -> Sub Msg
@@ -59,7 +66,12 @@ subscriptions _ =
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    ( model, Cmd.none )
+    case msg of
+        NoOp ->
+            ( model, Cmd.none )
+
+        GotGames response ->
+            ( { model | gameTypes = RemoteData.fromResult response }, Cmd.none )
 
 
 
@@ -85,6 +97,7 @@ view model =
     Element.column [ padding 10, spacing 10 ]
         [ Element.text "Exploring states in Jtac.jl"
         , Element.text "Written in Elm."
+        , listOfGames model
 
         -- , renderTable dummyLayerRenderer dummyData
         , renderTable
@@ -125,6 +138,22 @@ dummyTokenData =
     , height = 3
     , data = [ "A", "B", "C", "D", "E", "F", "ℝ", "O", "X" ]
     }
+
+
+listOfGames : Model -> Element Msg
+listOfGames model =
+    case model.gameTypes of
+        RemoteData.Success list ->
+            Element.row [ spacing 10 ] (List.map Element.text list)
+
+        RemoteData.Failure _ ->
+            Element.text "Http error"
+
+        RemoteData.Loading ->
+            Element.text "Loading"
+
+        RemoteData.NotAsked ->
+            Element.text "Not asked"
 
 
 
@@ -358,3 +387,17 @@ heightDisplayLayer layer =
 
         DisplayLayerString renderer data ->
             data.height * renderer.cellWidth
+
+
+
+--------------------------------------------------------------------------------
+-- REST Api --------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+getGames : Cmd Msg
+getGames =
+    Http.get
+        { url = "/api/games"
+        , expect = Http.expectJson GotGames (Decode.list Decode.string)
+        }
