@@ -4,6 +4,8 @@ This is a little web frontend that is used to inspect models running with Jtac.
 The game logic itself is implemented in the Jtac server, the frontend only
 renders data it gets from a REST api.
 
+https://github.com/roSievers/Jtac.jl/
+
 To compile, run 
 
     elm-live src/Main.elm --no-server
