@@ -2,9 +2,11 @@ module Main exposing (main)
 
 import Browser exposing (Document)
 import Element exposing (Element, padding, spacing)
+import Element.Events as Events
+import Element.Font as Font
 import Html exposing (Html)
 import Http
-import Json.Decode as Decode
+import Json.Decode as Decode exposing (Value)
 import List.Extra as List
 import RemoteData exposing (WebData)
 import Svg exposing (Svg)
@@ -24,12 +26,17 @@ main =
 type Msg
     = GotGames (Result Http.Error (List String))
     | GotModels (Result Http.Error (List ModelDescription))
+    | SelectGameType String
+    | SelectModel String
 
 
 type alias Model =
     { pageTitle : String
     , gameTypes : WebData (List String)
+    , selectedGameType : Maybe String
     , models : WebData (List ModelDescription)
+    , selectedModel : Maybe String
+    , gameState : Maybe Value
     }
 
 
@@ -51,7 +58,10 @@ initModel : Model
 initModel =
     { pageTitle = "Hello, World!"
     , gameTypes = RemoteData.Loading
+    , selectedGameType = Nothing
     , models = RemoteData.Loading
+    , selectedModel = Nothing
+    , gameState = Nothing
     }
 
 
@@ -80,6 +90,12 @@ update msg model =
         GotModels response ->
             ( { model | models = RemoteData.fromResult response }, Cmd.none )
 
+        SelectGameType newType ->
+            ( { model | selectedGameType = Just newType, gameState = Nothing }, Cmd.none )
+
+        SelectModel newModel ->
+            ( { model | selectedModel = Just newModel }, Cmd.none )
+
 
 
 --------------------------------------------------------------------------------
@@ -106,6 +122,7 @@ view model =
         , Element.text "Written in Elm."
         , listOfGames model
         , listOfModels model
+        , gameStateInformation model.gameState
         , renderTable
             [ DisplayLayerFloat
                 (heatmapLayerRenderer
@@ -120,6 +137,16 @@ view model =
                 dummyTokenData
             ]
         ]
+
+
+gameStateInformation : Maybe Value -> Element a
+gameStateInformation value =
+    case value of
+        Just _ ->
+            Element.text "We have a game state."
+
+        Nothing ->
+            Element.text "We don't have a game state."
 
 
 dummyHeatmap : Layer Float
@@ -141,7 +168,10 @@ dummyTokenData =
 listOfGames : Model -> Element Msg
 listOfGames model =
     webDataEasyWrapper
-        (\list -> Element.row [ spacing 10 ] (List.map Element.text list))
+        (\list ->
+            Element.row [ spacing 10 ]
+                (List.map (chooseButton SelectGameType model.selectedGameType) list)
+        )
         model.gameTypes
 
 
@@ -151,11 +181,20 @@ listOfModels model =
         (\list ->
             Element.row [ spacing 10 ]
                 (List.map
-                    (\m -> Element.text m.name)
+                    (\m -> chooseButton SelectModel model.selectedModel m.name)
                     list
                 )
         )
         model.models
+
+
+chooseButton : (String -> Msg) -> Maybe String -> String -> Element Msg
+chooseButton event current label =
+    if current == Just label then
+        Element.el [ Font.heavy ] (Element.text label)
+
+    else
+        Element.el [ Events.onClick (event label) ] (Element.text label)
 
 
 webDataEasyWrapper : (a -> Element Msg) -> WebData a -> Element Msg
