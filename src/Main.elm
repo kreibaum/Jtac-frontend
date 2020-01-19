@@ -6,6 +6,7 @@ import Element.Events as Events
 import Element.Font as Font
 import Html exposing (Html)
 import Http
+import Image exposing (Image, ImageLayer(..))
 import Json.Decode as Decode exposing (Value)
 import Json.Encode as Encode
 import Layer exposing (DisplayLayer, HeatmapColor(..), actionRenderer, heatmapLayerRenderer, renderMany, tokenRenderer)
@@ -248,10 +249,10 @@ prepareImage image =
         |> List.map (prepareImageLayer image)
 
 
-prepareImageLayer : Image -> LayerData -> DisplayLayer Msg
+prepareImageLayer : Image -> ImageLayer -> DisplayLayer Msg
 prepareImageLayer image layer =
     case layer of
-        LayerDataHeatmap value ->
+        ImageLayerHeatmap value ->
             Layer.DisplayLayerFloat
                 (heatmapLayerRenderer
                     { min = value.min
@@ -264,7 +265,7 @@ prepareImageLayer image layer =
                 , data = value.data
                 }
 
-        LayerDataTokens value ->
+        ImageLayerTokens value ->
             Layer.DisplayLayerString
                 (tokenRenderer { color = "black" })
                 { width = image.value.width
@@ -272,7 +273,7 @@ prepareImageLayer image layer =
                 , data = value.data
                 }
 
-        LayerDataActions value ->
+        ImageLayerActions value ->
             Layer.DisplayLayerInt
                 (actionRenderer
                     { event =
@@ -362,130 +363,5 @@ getDummyImage : Cmd Msg
 getDummyImage =
     Http.get
         { url = "/api/dummyimage"
-        , expect = Http.expectJson GotImage decodeImage
+        , expect = Http.expectJson GotImage Image.decode
         }
-
-
-type alias Image =
-    { typ : String
-    , value : ImageValue
-    }
-
-
-type alias ImageValue =
-    { layers : List LayerData
-    , width : Int
-    , height : Int
-    , name : String
-    , value : Float
-    }
-
-
-type LayerData
-    = LayerDataHeatmap HeatmapValue
-    | LayerDataTokens TokensValue
-    | LayerDataActions ActionsValue
-
-
-type alias HeatmapValue =
-    { data : List Float
-    , name : String
-    , style : String
-    , min : Float
-    , max : Float
-    }
-
-
-type alias TokensValue =
-    { data : List String
-    , name : String
-    , style : String
-    }
-
-
-type alias ActionsValue =
-    { data : List Int
-    , name : String
-    }
-
-
-decodeImage : Decode.Decoder Image
-decodeImage =
-    Decode.map2 Image
-        (Decode.field "typ" Decode.string)
-        (Decode.field "value" decodeImageValue)
-
-
-decodeImageValue : Decode.Decoder ImageValue
-decodeImageValue =
-    Decode.map5 ImageValue
-        (Decode.field "layers" (Decode.list decodeLayerData))
-        (Decode.field "width" Decode.int)
-        (Decode.field "height" Decode.int)
-        (Decode.field "name" Decode.string)
-        (Decode.field "value" Decode.float)
-
-
-decodeLayerData : Decode.Decoder LayerData
-decodeLayerData =
-    Decode.field "typ" Decode.string
-        |> Decode.andThen decodeLayerDataHelp
-
-
-decodeLayerDataHelp : String -> Decode.Decoder LayerData
-decodeLayerDataHelp typ =
-    case typ of
-        "heatmap" ->
-            decodeHeatmap
-
-        "tokens" ->
-            decodeTokens
-
-        "actions" ->
-            decodeActions
-
-        _ ->
-            Decode.fail ("No Layer Data decoder implemented for " ++ typ)
-
-
-decodeHeatmap : Decode.Decoder LayerData
-decodeHeatmap =
-    Decode.map LayerDataHeatmap
-        (Decode.field "value" decodeHeatmapValue)
-
-
-decodeHeatmapValue : Decode.Decoder HeatmapValue
-decodeHeatmapValue =
-    Decode.map5 HeatmapValue
-        (Decode.field "data" (Decode.list Decode.float))
-        (Decode.field "name" Decode.string)
-        (Decode.field "style" Decode.string)
-        (Decode.field "min" Decode.float)
-        (Decode.field "max" Decode.float)
-
-
-decodeTokens : Decode.Decoder LayerData
-decodeTokens =
-    Decode.map LayerDataTokens
-        (Decode.field "value" decodeTokensValue)
-
-
-decodeTokensValue : Decode.Decoder TokensValue
-decodeTokensValue =
-    Decode.map3 TokensValue
-        (Decode.field "data" (Decode.list Decode.string))
-        (Decode.field "name" Decode.string)
-        (Decode.field "style" Decode.string)
-
-
-decodeActions : Decode.Decoder LayerData
-decodeActions =
-    Decode.map LayerDataActions
-        (Decode.field "value" decodeActionsValue)
-
-
-decodeActionsValue : Decode.Decoder ActionsValue
-decodeActionsValue =
-    Decode.map2 ActionsValue
-        (Decode.field "data" (Decode.list Decode.int))
-        (Decode.field "name" Decode.string)
