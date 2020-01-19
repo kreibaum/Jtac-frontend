@@ -26,6 +26,7 @@ main =
 type Msg
     = GotGames (Result Http.Error (List String))
     | GotModels (Result Http.Error (List ModelDescription))
+    | GotImage (Result Http.Error Image)
     | SelectGameType String
     | SelectModel String
 
@@ -37,6 +38,7 @@ type alias Model =
     , models : WebData (List ModelDescription)
     , selectedModel : Maybe String
     , gameState : Maybe Value
+    , image : WebData Image
     }
 
 
@@ -62,12 +64,13 @@ initModel =
     , models = RemoteData.Loading
     , selectedModel = Nothing
     , gameState = Nothing
+    , image = RemoteData.Loading
     }
 
 
 init : a -> ( Model, Cmd Msg )
 init _ =
-    ( initModel, Cmd.batch [ getGames, getModels ] )
+    ( initModel, Cmd.batch [ getGames, getModels, getDummyImage ] )
 
 
 subscriptions : Model -> Sub Msg
@@ -89,6 +92,9 @@ update msg model =
 
         GotModels response ->
             ( { model | models = RemoteData.fromResult response }, Cmd.none )
+
+        GotImage response ->
+            ( { model | image = RemoteData.fromResult response }, Cmd.none )
 
         SelectGameType newType ->
             ( { model | selectedGameType = Just newType, gameState = Nothing }, Cmd.none )
@@ -136,6 +142,7 @@ view model =
                 (tokenRenderer { color = "red" })
                 dummyTokenData
             ]
+        , imageView model
         ]
 
 
@@ -211,6 +218,11 @@ webDataEasyWrapper ifPresent data =
 
         RemoteData.NotAsked ->
             Element.text "Not asked"
+
+
+imageView : Model -> Element Msg
+imageView model =
+    webDataEasyWrapper (\image -> Element.text "parsed it!") model.image
 
 
 
@@ -480,3 +492,136 @@ decodeModelDescription =
         (Decode.field "game" Decode.string)
         (Decode.field "features" (Decode.list Decode.string))
         (Decode.field "params" Decode.int)
+
+
+getDummyImage : Cmd Msg
+getDummyImage =
+    Http.get
+        { url = "/api/dummyimage"
+        , expect = Http.expectJson GotImage decodeImage
+        }
+
+
+type alias Image =
+    { typ : String
+    , value : ImageValue
+    }
+
+
+type alias ImageValue =
+    { layers : List LayerData
+    , width : Int
+    , height : Int
+    , name : String
+    , value : Float
+    }
+
+
+type LayerData
+    = LayerDataHeatmap HeatmapValue
+    | LayerDataTokens TokensValue
+    | LayerDataActions ActionsValue
+
+
+type alias HeatmapValue =
+    { data : List Float
+    , name : String
+    , style : String
+    , min : Int
+    , max : Int
+    }
+
+
+type alias TokensValue =
+    { data : List String
+    , name : String
+    , style : String
+    }
+
+
+type alias ActionsValue =
+    { data : List Int
+    , name : String
+    }
+
+
+decodeImage : Decode.Decoder Image
+decodeImage =
+    Decode.map2 Image
+        (Decode.field "typ" Decode.string)
+        (Decode.field "value" decodeImageValue)
+
+
+decodeImageValue : Decode.Decoder ImageValue
+decodeImageValue =
+    Decode.map5 ImageValue
+        (Decode.field "layers" (Decode.list decodeLayerData))
+        (Decode.field "width" Decode.int)
+        (Decode.field "height" Decode.int)
+        (Decode.field "name" Decode.string)
+        (Decode.field "value" Decode.float)
+
+
+decodeLayerData : Decode.Decoder LayerData
+decodeLayerData =
+    Decode.field "typ" Decode.string
+        |> Decode.andThen decodeLayerDataHelp
+
+
+decodeLayerDataHelp : String -> Decode.Decoder LayerData
+decodeLayerDataHelp typ =
+    case typ of
+        "heatmap" ->
+            decodeHeatmap
+
+        "tokens" ->
+            decodeTokens
+
+        "actions" ->
+            decodeActions
+
+        _ ->
+            Decode.fail ("No Layer Data decoder implemented for " ++ typ)
+
+
+decodeHeatmap : Decode.Decoder LayerData
+decodeHeatmap =
+    Decode.map LayerDataHeatmap
+        (Decode.field "value" decodeHeatmapValue)
+
+
+decodeHeatmapValue : Decode.Decoder HeatmapValue
+decodeHeatmapValue =
+    Decode.map5 HeatmapValue
+        (Decode.field "data" (Decode.list Decode.float))
+        (Decode.field "name" Decode.string)
+        (Decode.field "style" Decode.string)
+        (Decode.field "min" Decode.int)
+        (Decode.field "max" Decode.int)
+
+
+decodeTokens : Decode.Decoder LayerData
+decodeTokens =
+    Decode.map LayerDataTokens
+        (Decode.field "value" decodeTokensValue)
+
+
+decodeTokensValue : Decode.Decoder TokensValue
+decodeTokensValue =
+    Decode.map3 TokensValue
+        (Decode.field "data" (Decode.list Decode.string))
+        (Decode.field "name" Decode.string)
+        (Decode.field "style" Decode.string)
+
+
+decodeActions : Decode.Decoder LayerData
+decodeActions =
+    Decode.map LayerDataActions
+        (Decode.field "value" decodeActionsValue)
+
+
+decodeActionsValue : Decode.Decoder ActionsValue
+decodeActionsValue =
+    Decode.map2 ActionsValue
+        (Decode.field "data" (Decode.list Decode.int))
+        (Decode.field "name" Decode.string)
