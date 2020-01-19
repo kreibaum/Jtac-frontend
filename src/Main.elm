@@ -86,9 +86,41 @@ view model =
         [ Element.text "Exploring states in Jtac.jl"
         , Element.text "Written in Elm."
         , renderTable dummyLayerRenderer dummyData
+        , renderTable
+            (heatmapLayerRenderer
+                { min = 10
+                , max = 0
+                , color = GrayscaleHeatmap
+                }
+            )
+            dummyHeatmap
         ]
 
 
+dummyData : Layer ()
+dummyData =
+    { width = 7
+    , height = 4
+    , data = List.repeat (7 * 4) ()
+    }
+
+
+dummyHeatmap : Layer Float
+dummyHeatmap =
+    { width = 3
+    , height = 3
+    , data = [ 1, 2, 3, 4, 5, 6, 7, 8, 9 ]
+    }
+
+
+
+--------------------------------------------------------------------------------
+-- Default Layer Renderer Definitions ------------------------------------------
+--------------------------------------------------------------------------------
+
+
+{-| A layer that just renders empty squares. Can be used to create a grid.
+-}
 dummyLayerRenderer : LayerRenderer a
 dummyLayerRenderer =
     { cellWidth = 100
@@ -105,11 +137,40 @@ dummyLayerRenderer =
     }
 
 
-dummyData : Layer ()
-dummyData =
-    { width = 7
-    , height = 4
-    , data = List.repeat (7 * 4) ()
+type HeatmapColor
+    = GrayscaleHeatmap
+
+
+heatmapColor : HeatmapColor -> Float -> String
+heatmapColor color intensity =
+    case color of
+        GrayscaleHeatmap ->
+            let
+                intensity255 =
+                    String.fromFloat (255 * intensity)
+            in
+            "rgb(" ++ intensity255 ++ "," ++ intensity255 ++ "," ++ intensity255 ++ ")"
+
+
+heatmapLayerRenderer : { min : Float, max : Float, color : HeatmapColor } -> LayerRenderer Float
+heatmapLayerRenderer config =
+    let
+        intensity value =
+            (value - config.min)
+                / (config.max - config.min)
+                |> max 0
+                |> min 1
+    in
+    { cellWidth = 100
+    , cellHeight = 100
+    , cellRenderer =
+        \data ->
+            Svg.rect
+                [ Svg.Attributes.width "100"
+                , Svg.Attributes.height "100"
+                , Svg.Attributes.fill (heatmapColor config.color (intensity data))
+                ]
+                []
     }
 
 
