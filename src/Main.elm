@@ -85,16 +85,21 @@ view model =
     Element.column [ padding 10, spacing 10 ]
         [ Element.text "Exploring states in Jtac.jl"
         , Element.text "Written in Elm."
-        , renderTable dummyLayerRenderer dummyData
+
+        -- , renderTable dummyLayerRenderer dummyData
         , renderTable
-            (heatmapLayerRenderer
-                { min = 10
-                , max = 0
-                , color = BlueHeatmap
-                }
-            )
-            dummyHeatmap
-        , renderTable (tokenRenderer { color = "red" }) dummyTokenData
+            [ DisplayLayerFloat
+                (heatmapLayerRenderer
+                    { min = 10
+                    , max = 0
+                    , color = GrayscaleHeatmap
+                    }
+                )
+                dummyHeatmap
+            , DisplayLayerString
+                (tokenRenderer { color = "red" })
+                dummyTokenData
+            ]
         ]
 
 
@@ -118,7 +123,7 @@ dummyTokenData : Layer String
 dummyTokenData =
     { width = 3
     , height = 3
-    , data = [ "A", "B", "C", "D", "E", "F", "G", "H", "I" ]
+    , data = [ "A", "B", "C", "D", "E", "F", "ℝ", "O", "X" ]
     }
 
 
@@ -199,8 +204,8 @@ tokenRenderer config =
         \data ->
             Svg.text_
                 [ Svg.Attributes.textAnchor "middle"
-                , Svg.Attributes.transform "translate(50, 90)"
-                , Svg.Attributes.fontSize "80px"
+                , Svg.Attributes.transform "translate(50, 85)"
+                , Svg.Attributes.fontSize "90px"
                 , Svg.Attributes.fill config.color
                 ]
                 [ Svg.text data
@@ -230,14 +235,25 @@ type alias LayerRenderer a =
     }
 
 
-renderTable : LayerRenderer a -> Layer a -> Element Msg
-renderTable renderer data =
+type DisplayLayer
+    = DisplayLayerFloat (LayerRenderer Float) (Layer Float)
+    | DisplayLayerString (LayerRenderer String) (Layer String)
+
+
+renderTable : List DisplayLayer -> Element Msg
+renderTable displayLayer =
     let
         width =
-            data.width * renderer.cellWidth
+            displayLayer
+                |> List.head
+                |> Maybe.map widthDisplayLayer
+                |> Maybe.withDefault 0
 
         height =
-            data.height * renderer.cellHeight
+            displayLayer
+                |> List.head
+                |> Maybe.map heightDisplayLayer
+                |> Maybe.withDefault 0
 
         viewBox =
             String.join
@@ -256,10 +272,10 @@ renderTable renderer data =
             ]
     in
     Element.html
-        (Svg.svg attributes (renderTableSvg renderer data))
+        (Svg.svg attributes (List.map renderDisplayLayer displayLayer))
 
 
-renderTableSvg : LayerRenderer a -> Layer a -> List (Svg Msg)
+renderTableSvg : LayerRenderer a -> Layer a -> Svg Msg
 renderTableSvg renderer data =
     let
         xRange =
@@ -282,6 +298,7 @@ renderTableSvg renderer data =
                 [ renderer.cellRenderer info.data ]
         )
         (indexedData data)
+        |> Svg.g []
 
 
 type alias CellRenderInfo a =
@@ -311,3 +328,33 @@ indexedData data =
         )
         xRange
         |> List.concat
+
+
+renderDisplayLayer : DisplayLayer -> Svg Msg
+renderDisplayLayer layer =
+    case layer of
+        DisplayLayerFloat renderer data ->
+            renderTableSvg renderer data
+
+        DisplayLayerString renderer data ->
+            renderTableSvg renderer data
+
+
+widthDisplayLayer : DisplayLayer -> Int
+widthDisplayLayer layer =
+    case layer of
+        DisplayLayerFloat renderer data ->
+            data.width * renderer.cellWidth
+
+        DisplayLayerString renderer data ->
+            data.width * renderer.cellWidth
+
+
+heightDisplayLayer : DisplayLayer -> Int
+heightDisplayLayer layer =
+    case layer of
+        DisplayLayerFloat renderer data ->
+            data.height * renderer.cellWidth
+
+        DisplayLayerString renderer data ->
+            data.height * renderer.cellWidth
