@@ -4,6 +4,7 @@ import Browser exposing (Document)
 import Element exposing (Element, padding, spacing)
 import Element.Events as Events
 import Element.Font as Font
+import Element.Input as Input
 import Html exposing (Html)
 import Http
 import Image exposing (Image, ImageLayer(..))
@@ -38,6 +39,7 @@ type Msg
     | GotGameTurn GameType (Result Http.Error Value)
     | HideLayer String
     | ShowLayer String
+    | InputPower String
 
 
 type alias Model =
@@ -50,6 +52,7 @@ type alias Model =
     , image : WebData Image
     , lastAction : Int
     , hiddenLayers : Set String
+    , inputPower : String
     }
 
 
@@ -100,6 +103,7 @@ initModel =
     , image = RemoteData.Loading
     , lastAction = -1
     , hiddenLayers = Set.empty
+    , inputPower = "500"
     }
 
 
@@ -180,7 +184,9 @@ update msg model =
                     getImage
                         { game = value
                         , model = "rollout"
-                        , power = 500
+                        , power =
+                            String.toInt model.inputPower
+                                |> Maybe.withDefault 500
                         , temperature = 0.5
                         , exploration = 1.5
                         }
@@ -188,6 +194,9 @@ update msg model =
                 _ ->
                     Cmd.none
             )
+
+        InputPower text ->
+            ( { model | inputPower = text }, Cmd.none )
 
 
 
@@ -211,18 +220,28 @@ elmUiLayout model =
 view : Model -> Element Msg
 view model =
     Element.column [ padding 10, spacing 10 ]
-        [ Element.text "Exploring states in Jtac.jl"
-        , Element.text "Written in Elm."
+        [ Element.row [ spacing 10 ]
+            [ Input.text []
+                { onChange = InputPower
+                , text = model.inputPower
+                , placeholder = Nothing
+                , label = Input.labelLeft [ Element.centerY ] (Element.text "Power")
+                }
+            , String.toInt model.inputPower
+                |> Maybe.withDefault 500
+                |> String.fromInt
+                |> Element.text
+            ]
         , listOfGames model
         , listOfModels model
-        , gameStateInformation model.gameState
+        , gameStateInformation model model.gameState
         , Element.text ("Last action: " ++ String.fromInt model.lastAction)
         , imageView model
         ]
 
 
-gameStateInformation : WebData GameState -> Element Msg
-gameStateInformation value =
+gameStateInformation : Model -> WebData GameState -> Element Msg
+gameStateInformation model value =
     webDataEasyWrapper
         (\game ->
             Element.row [ spacing 10 ]
@@ -233,7 +252,9 @@ gameStateInformation value =
                         (RequestImage
                             { game = game.value
                             , model = "rollout"
-                            , power = 500
+                            , power =
+                                String.toInt model.inputPower
+                                    |> Maybe.withDefault 500
                             , temperature = 0.5
                             , exploration = 0.7
                             }
