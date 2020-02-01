@@ -222,16 +222,16 @@ heatmapColor color intensity =
         GrayscaleHeatmap ->
             let
                 intensity255 =
-                    String.fromFloat (255 * intensity)
+                    String.fromFloat (255 * (1 - intensity))
             in
             "rgb(" ++ intensity255 ++ "," ++ intensity255 ++ "," ++ intensity255 ++ ")"
 
         BlueHeatmap ->
             let
                 intensity255 =
-                    String.fromFloat (255 * intensity)
+                    String.fromFloat (255 * (1 - intensity))
             in
-            "rgb(0, 0," ++ intensity255 ++ ")"
+            "rgb(" ++ intensity255 ++ "," ++ intensity255 ++ ", 255 )"
 
 
 heatmapLayerRenderer : HeatmapRendererConfig -> LayerRenderer Float msg

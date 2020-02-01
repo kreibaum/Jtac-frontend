@@ -25,7 +25,8 @@ main =
 
 
 type Msg
-    = GotGames (Result Http.Error (List GameType))
+    = NoOp
+    | GotGames (Result Http.Error (List GameType))
     | GotModels (Result Http.Error (List ModelDescription))
     | RequestImage ImageRequest
     | GotImage (Result Http.Error Image)
@@ -33,7 +34,8 @@ type Msg
     | GotGameState GameType (Result Http.Error Value)
     | SelectGameType GameType
     | SelectModel String
-    | SetLastAction Int
+    | PostGameTurn TurnRequest
+    | GotGameTurn GameType (Result Http.Error Value)
     | HideLayer String
     | ShowLayer String
 
@@ -120,6 +122,9 @@ subscriptions _ =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        NoOp ->
+            ( model, Cmd.none )
+
         GotGames response ->
             ( { model | gameTypes = RemoteData.fromResult response }, Cmd.none )
 
@@ -155,14 +160,34 @@ update msg model =
         SelectModel newModel ->
             ( { model | selectedModel = Just newModel }, Cmd.none )
 
-        SetLastAction newAction ->
-            ( { model | lastAction = newAction }, Cmd.none )
+        PostGameTurn turnRequest ->
+            ( { model | lastAction = turnRequest.action }, postTurn turnRequest )
 
         HideLayer name ->
             ( { model | hiddenLayers = Set.insert name model.hiddenLayers }, Cmd.none )
 
         ShowLayer name ->
             ( { model | hiddenLayers = Set.remove name model.hiddenLayers }, Cmd.none )
+
+        GotGameTurn gameType response ->
+            ( { model
+                | gameState =
+                    RemoteData.fromResult response
+                        |> RemoteData.map (\value -> { value = value, gameType = gameType })
+              }
+            , case response of
+                Ok value ->
+                    getImage
+                        { game = value
+                        , model = "rollout"
+                        , power = 500
+                        , temperature = 0.5
+                        , exploration = 1.5
+                        }
+
+                _ ->
+                    Cmd.none
+            )
 
 
 
@@ -289,12 +314,26 @@ imageViewInner : Model -> Image -> Element Msg
 imageViewInner model image =
     Element.row [ spacing 10 ]
         [ Element.el [] (prepareImage model image |> renderMany |> Element.html)
+            |> Element.map (actionToMsg model)
         , Element.el [ Element.alignTop ] (Element.text "Layers")
         , image.value.layers
             |> List.map Image.layerName
             |> List.map (layerName model)
             |> Element.column [ spacing 10 ]
         ]
+
+
+actionToMsg : Model -> Int -> Msg
+actionToMsg model action =
+    RemoteData.unwrap NoOp
+        (\gameState ->
+            PostGameTurn
+                { game = gameState.value
+                , action = action
+                , gameType = gameState.gameType
+                }
+        )
+        model.gameState
 
 
 layerName : Model -> String -> Element Msg
@@ -306,14 +345,14 @@ layerName model name =
         Element.el [ Events.onClick (HideLayer name) ] (Element.text name)
 
 
-prepareImage : Model -> Image -> List (DisplayLayer Msg)
+prepareImage : Model -> Image -> List (DisplayLayer Int)
 prepareImage model image =
     image.value.layers
         |> List.filter (\layer -> not (Set.member (Image.layerName layer) model.hiddenLayers))
         |> List.map (prepareImageLayer image)
 
 
-prepareImageLayer : Image -> ImageLayer -> DisplayLayer Msg
+prepareImageLayer : Image -> ImageLayer -> DisplayLayer Int
 prepareImageLayer image layer =
     case layer of
         ImageLayerHeatmap value ->
@@ -321,7 +360,7 @@ prepareImageLayer image layer =
                 (heatmapLayerRenderer
                     { min = value.min
                     , max = value.max
-                    , color = GrayscaleHeatmap
+                    , color = BlueHeatmap
                     }
                 )
                 { width = image.value.width
@@ -343,7 +382,7 @@ prepareImageLayer image layer =
                     { event =
                         \i ->
                             if i > 0 then
-                                Just (SetLastAction i)
+                                Just i
 
                             else
                                 Nothing
@@ -372,7 +411,7 @@ fromStringJuliaTypeParameter : String -> Decode.Decoder JuliaTypeParameter
 fromStringJuliaTypeParameter string =
     case string of
         "Int64" ->
-            Decode.succeed (JuliaInt64 1)
+            Decode.succeed (JuliaInt64 5)
 
         _ ->
             Decode.fail ("Not valid pattern for decoder to JuliaTypeParameter. Pattern: " ++ string)
@@ -459,4 +498,28 @@ getDummyImage =
     Http.get
         { url = "/api/dummyimage"
         , expect = Http.expectJson GotImage Image.decode
+        }
+
+
+type alias TurnRequest =
+    { game : Value
+    , action : Int
+    , gameType : GameType
+    }
+
+
+encodeTurnRequest : TurnRequest -> Value
+encodeTurnRequest record =
+    Encode.object
+        [ ( "game", record.game )
+        , ( "action", Encode.int <| record.action )
+        ]
+
+
+postTurn : TurnRequest -> Cmd Msg
+postTurn config =
+    Http.post
+        { url = "/api/turn"
+        , body = Http.jsonBody (encodeTurnRequest config)
+        , expect = Http.expectJson (GotGameTurn config.gameType) Decode.value
         }
