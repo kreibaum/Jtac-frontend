@@ -8,4 +8,4 @@ https://github.com/roSievers/Jtac.jl/
 
 Make sure that you have a running `julia server/aiserver.jl` and then run
 
-    elm-live src/Main.elm -y http://localhost:4242 -x /api
+    elm-live src/Main.elm -y http://localhost:4242/api -x /api
