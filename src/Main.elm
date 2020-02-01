@@ -40,6 +40,8 @@ type Msg
     | HideLayer String
     | ShowLayer String
     | InputPower String
+    | InputTemperature String
+    | InputExploration String
 
 
 type alias Model =
@@ -53,6 +55,8 @@ type alias Model =
     , lastAction : Int
     , hiddenLayers : Set String
     , inputPower : String
+    , inputTemperature : String
+    , inputExploration : String
     }
 
 
@@ -104,6 +108,8 @@ initModel =
     , lastAction = -1
     , hiddenLayers = Set.empty
     , inputPower = "500"
+    , inputTemperature = "0.5"
+    , inputExploration = "1.5"
     }
 
 
@@ -181,15 +187,7 @@ update msg model =
               }
             , case response of
                 Ok value ->
-                    getImage
-                        { game = value
-                        , model = "rollout"
-                        , power =
-                            String.toInt model.inputPower
-                                |> Maybe.withDefault 500
-                        , temperature = 0.5
-                        , exploration = 1.5
-                        }
+                    getImage (buildImageRequest model value)
 
                 _ ->
                     Cmd.none
@@ -197,6 +195,22 @@ update msg model =
 
         InputPower text ->
             ( { model | inputPower = text }, Cmd.none )
+
+        InputTemperature text ->
+            ( { model | inputTemperature = text }, Cmd.none )
+
+        InputExploration text ->
+            ( { model | inputExploration = text }, Cmd.none )
+
+
+buildImageRequest : Model -> Value -> ImageRequest
+buildImageRequest model value =
+    { game = value
+    , model = model.selectedModel |> Maybe.withDefault "rollout"
+    , power = String.toInt model.inputPower |> Maybe.withDefault 500
+    , temperature = String.toFloat model.inputTemperature |> Maybe.withDefault 0.5
+    , exploration = String.toFloat model.inputExploration |> Maybe.withDefault 1.5
+    }
 
 
 
@@ -225,12 +239,20 @@ view model =
                 { onChange = InputPower
                 , text = model.inputPower
                 , placeholder = Nothing
-                , label = Input.labelLeft [ Element.centerY ] (Element.text "Power")
+                , label = Input.labelAbove [ Element.centerY ] (Element.text "Power")
                 }
-            , String.toInt model.inputPower
-                |> Maybe.withDefault 500
-                |> String.fromInt
-                |> Element.text
+            , Input.text []
+                { onChange = InputTemperature
+                , text = model.inputTemperature
+                , placeholder = Nothing
+                , label = Input.labelAbove [ Element.centerY ] (Element.text "Temperature")
+                }
+            , Input.text []
+                { onChange = InputExploration
+                , text = model.inputExploration
+                , placeholder = Nothing
+                , label = Input.labelAbove [ Element.centerY ] (Element.text "Exploration")
+                }
             ]
         , listOfGames model
         , listOfModels model
@@ -248,18 +270,7 @@ gameStateInformation model value =
                 [ Element.text "We have a game state."
                 , Element.text game.gameType.typName
                 , Element.el
-                    [ Events.onClick
-                        (RequestImage
-                            { game = game.value
-                            , model = "rollout"
-                            , power =
-                                String.toInt model.inputPower
-                                    |> Maybe.withDefault 500
-                            , temperature = 0.5
-                            , exploration = 0.7
-                            }
-                        )
-                    ]
+                    [ Events.onClick (RequestImage (buildImageRequest model game.value)) ]
                     (Element.text "Evaluate position")
                 ]
         )
