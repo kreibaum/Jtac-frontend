@@ -24,24 +24,24 @@ main =
 
 
 type Msg
-    = GotGames (Result Http.Error (List String))
+    = GotGames (Result Http.Error (List GameType))
     | GotModels (Result Http.Error (List ModelDescription))
     | RequestImage ImageRequest
     | GotImage (Result Http.Error Image)
-    | RequestGameState String
-    | GotGameState (Result Http.Error Value)
-    | SelectGameType String
+    | RequestGameState GameType
+    | GotGameState GameType (Result Http.Error Value)
+    | SelectGameType GameType
     | SelectModel String
     | SetLastAction Int
 
 
 type alias Model =
     { pageTitle : String
-    , gameTypes : WebData (List String)
-    , selectedGameType : Maybe String
+    , gameTypes : WebData (List GameType)
+    , selectedGameType : Maybe GameType
     , models : WebData (List ModelDescription)
     , selectedModel : Maybe String
-    , gameState : WebData Value
+    , gameState : WebData GameState
     , image : WebData Image
     , lastAction : Int
     }
@@ -53,6 +53,22 @@ type alias ModelDescription =
     , features : List String
     , params : Int
     }
+
+
+type alias GameType =
+    { typName : String
+    , params : List JuliaTypeParameter
+    }
+
+
+type alias GameState =
+    { gameType : GameType
+    , value : Value
+    }
+
+
+type JuliaTypeParameter
+    = JuliaInt64 Int
 
 
 
@@ -108,8 +124,14 @@ update msg model =
         RequestGameState gameType ->
             ( { model | gameState = RemoteData.Loading }, getNewGame gameType )
 
-        GotGameState response ->
-            ( { model | gameState = RemoteData.fromResult response }, Cmd.none )
+        GotGameState gameType response ->
+            ( { model
+                | gameState =
+                    RemoteData.fromResult response
+                        |> RemoteData.map (\value -> { value = value, gameType = gameType })
+              }
+            , Cmd.none
+            )
 
         SelectGameType newType ->
             ( { model
@@ -157,16 +179,17 @@ view model =
         ]
 
 
-gameStateInformation : WebData Value -> Element Msg
+gameStateInformation : WebData GameState -> Element Msg
 gameStateInformation value =
     webDataEasyWrapper
         (\game ->
             Element.row [ spacing 10 ]
                 [ Element.text "We have a game state."
+                , Element.text game.gameType.typName
                 , Element.el
                     [ Events.onClick
                         (RequestImage
-                            { game = game
+                            { game = game.value
                             , model = "rollout"
                             , power = 50
                             , temperature = 0.5
@@ -187,10 +210,18 @@ listOfGames model =
         , webDataEasyWrapper
             (\list ->
                 Element.row [ spacing 10 ]
-                    (List.map (chooseButton SelectGameType model.selectedGameType) list)
+                    (List.map
+                        (chooseButton .typName SelectGameType model.selectedGameType)
+                        list
+                    )
             )
             model.gameTypes
-        , Element.el [ Events.onClick (RequestGameState "TicTacToe") ] (Element.text "Create Game")
+        , case model.selectedGameType of
+            Just gameType ->
+                Element.el [ Events.onClick (RequestGameState gameType) ] (Element.text "Create Game")
+
+            Nothing ->
+                Element.none
         ]
 
 
@@ -200,20 +231,20 @@ listOfModels model =
         (\list ->
             Element.row [ spacing 10 ]
                 (List.map
-                    (\m -> chooseButton SelectModel model.selectedModel m.name)
+                    (\m -> chooseButton (\x->x) SelectModel model.selectedModel m.name)
                     list
                 )
         )
         model.models
 
 
-chooseButton : (String -> Msg) -> Maybe String -> String -> Element Msg
-chooseButton event current label =
+chooseButton : (a -> String) -> (a -> Msg) -> Maybe a -> a -> Element Msg
+chooseButton writer event current label =
     if current == Just label then
-        Element.el [ Font.heavy ] (Element.text label)
+        Element.el [ Font.heavy ] (Element.text (writer label))
 
     else
-        Element.el [ Events.onClick (event label) ] (Element.text label)
+        Element.el [ Events.onClick (event label) ] (Element.text (writer label))
 
 
 webDataEasyWrapper : (a -> Element Msg) -> WebData a -> Element Msg
@@ -297,11 +328,33 @@ prepareImageLayer image layer =
 --------------------------------------------------------------------------------
 
 
+decodeGameType : Decode.Decoder GameType
+decodeGameType =
+    Decode.map2 GameType
+        (Decode.field "typ" Decode.string)
+        (Decode.field "params" (Decode.list decodeJuliaTypeParameter))
+
+
+fromStringJuliaTypeParameter : String -> Decode.Decoder JuliaTypeParameter
+fromStringJuliaTypeParameter string =
+    case string of
+        "Int64" ->
+            Decode.succeed (JuliaInt64 1)
+
+        _ ->
+            Decode.fail ("Not valid pattern for decoder to JuliaTypeParameter. Pattern: " ++ string)
+
+
+decodeJuliaTypeParameter : Decode.Decoder JuliaTypeParameter
+decodeJuliaTypeParameter =
+    Decode.string |> Decode.andThen fromStringJuliaTypeParameter
+
+
 getGames : Cmd Msg
 getGames =
     Http.get
         { url = "/api/games"
-        , expect = Http.expectJson GotGames (Decode.list Decode.string)
+        , expect = Http.expectJson GotGames (Decode.list decodeGameType)
         }
 
 
@@ -322,11 +375,11 @@ decodeModelDescription =
         (Decode.field "params" Decode.int)
 
 
-getNewGame : String -> Cmd Msg
+getNewGame : GameType -> Cmd Msg
 getNewGame gameType =
     Http.get
-        { url = "/api/create/" ++ gameType
-        , expect = Http.expectJson GotGameState Decode.value
+        { url = "/api/create/" ++ gameType.typName
+        , expect = Http.expectJson (GotGameState gameType) Decode.value
         }
 
 
@@ -344,7 +397,7 @@ getImage config =
     Http.post
         { url = "/api/apply/visual"
         , body = Http.jsonBody (encodeImageRequest config)
-        , expect = Http.expectJson GotGameState Decode.value
+        , expect = Http.expectJson (GotGameState { typName = "TODO", params = [] }) Decode.value
         }
 
 
