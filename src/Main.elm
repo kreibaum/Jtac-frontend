@@ -11,6 +11,7 @@ import Json.Decode as Decode exposing (Value)
 import Json.Encode as Encode
 import Layer exposing (DisplayLayer, HeatmapColor(..), actionRenderer, heatmapLayerRenderer, renderMany, tokenRenderer)
 import RemoteData exposing (WebData)
+import Set exposing (Set)
 
 
 main : Program () Model Msg
@@ -33,6 +34,8 @@ type Msg
     | SelectGameType GameType
     | SelectModel String
     | SetLastAction Int
+    | HideLayer String
+    | ShowLayer String
 
 
 type alias Model =
@@ -44,6 +47,7 @@ type alias Model =
     , gameState : WebData GameState
     , image : WebData Image
     , lastAction : Int
+    , hiddenLayers : Set String
     }
 
 
@@ -93,6 +97,7 @@ initModel =
     , gameState = RemoteData.NotAsked
     , image = RemoteData.Loading
     , lastAction = -1
+    , hiddenLayers = Set.empty
     }
 
 
@@ -152,6 +157,12 @@ update msg model =
 
         SetLastAction newAction ->
             ( { model | lastAction = newAction }, Cmd.none )
+
+        HideLayer name ->
+            ( { model | hiddenLayers = Set.insert name model.hiddenLayers }, Cmd.none )
+
+        ShowLayer name ->
+            ( { model | hiddenLayers = Set.remove name model.hiddenLayers }, Cmd.none )
 
 
 
@@ -271,18 +282,34 @@ webDataEasyWrapper ifPresent data =
 
 imageView : Model -> Element Msg
 imageView model =
-    webDataEasyWrapper
-        (\image ->
-            Element.row [ spacing 10 ]
-                [ prepareImage image |> renderMany |> Element.html
-                ]
-        )
-        model.image
+    webDataEasyWrapper (imageViewInner model) model.image
 
 
-prepareImage : Image -> List (DisplayLayer Msg)
-prepareImage image =
+imageViewInner : Model -> Image -> Element Msg
+imageViewInner model image =
+    Element.row [ spacing 10 ]
+        [ Element.el [] (prepareImage model image |> renderMany |> Element.html)
+        , Element.el [ Element.alignTop ] (Element.text "Layers")
+        , image.value.layers
+            |> List.map Image.layerName
+            |> List.map (layerName model)
+            |> Element.column [ spacing 10 ]
+        ]
+
+
+layerName : Model -> String -> Element Msg
+layerName model name =
+    if Set.member name model.hiddenLayers then
+        Element.el [ Font.strike, Events.onClick (ShowLayer name) ] (Element.text name)
+
+    else
+        Element.el [ Events.onClick (HideLayer name) ] (Element.text name)
+
+
+prepareImage : Model -> Image -> List (DisplayLayer Msg)
+prepareImage model image =
     image.value.layers
+        |> List.filter (\layer -> not (Set.member (Image.layerName layer) model.hiddenLayers))
         |> List.map (prepareImageLayer image)
 
 

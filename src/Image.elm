@@ -6,6 +6,7 @@ module Image exposing
     , ImageValue
     , TokensValue
     , decode
+    , layerName
     )
 
 {-| Data type recieved from the server that is used to display a game.
@@ -55,6 +56,19 @@ type alias ActionsValue =
     { data : List Int
     , name : String
     }
+
+
+layerName : ImageLayer -> String
+layerName layer =
+    case layer of
+        ImageLayerHeatmap value ->
+            value.name
+
+        ImageLayerTokens value ->
+            value.name
+
+        ImageLayerActions value ->
+            value.name
 
 
 {-| Decodes a JSON object into an Image object.
