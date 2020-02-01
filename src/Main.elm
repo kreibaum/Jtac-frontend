@@ -70,9 +70,13 @@ type alias GameState =
 type JuliaTypeParameter
     = JuliaInt64 Int
 
-juliaTypeToString param = 
+
+juliaTypeToString param =
     case param of
-        JuliaInt64 value -> String.fromInt value
+        JuliaInt64 value ->
+            String.fromInt value
+
+
 
 --------------------------------------------------------------------------------
 -- Setup -----------------------------------------------------------------------
@@ -193,13 +197,13 @@ gameStateInformation value =
                         (RequestImage
                             { game = game.value
                             , model = "rollout"
-                            , power = 50
+                            , power = 500
                             , temperature = 0.5
                             , exploration = 0.7
                             }
                         )
                     ]
-                    (Element.text "Try to crash")
+                    (Element.text "Evaluate position")
                 ]
         )
         value
@@ -233,7 +237,7 @@ listOfModels model =
         (\list ->
             Element.row [ spacing 10 ]
                 (List.map
-                    (\m -> chooseButton (\x->x) SelectModel model.selectedModel m.name)
+                    (\m -> chooseButton (\x -> x) SelectModel model.selectedModel m.name)
                     list
                 )
         )
@@ -380,9 +384,13 @@ decodeModelDescription =
 getNewGame : GameType -> Cmd Msg
 getNewGame gameType =
     let
-      url =  "/api/create/" ++ gameType.typName ++ (gameType.params
-        |> List.map (\p -> "/" ++ (juliaTypeToString p))
-        |> String.concat)
+        url =
+            "/api/create/"
+                ++ gameType.typName
+                ++ (gameType.params
+                        |> List.map (\p -> "/" ++ juliaTypeToString p)
+                        |> String.concat
+                   )
     in
     Http.get
         { url = url
@@ -404,7 +412,7 @@ getImage config =
     Http.post
         { url = "/api/apply/visual"
         , body = Http.jsonBody (encodeImageRequest config)
-        , expect = Http.expectJson (GotGameState { typName = "TODO", params = [] }) Decode.value
+        , expect = Http.expectJson GotImage Image.decode
         }
 
 
