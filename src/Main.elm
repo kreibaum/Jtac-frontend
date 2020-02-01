@@ -70,7 +70,9 @@ type alias GameState =
 type JuliaTypeParameter
     = JuliaInt64 Int
 
-
+juliaTypeToString param = 
+    case param of
+        JuliaInt64 value -> String.fromInt value
 
 --------------------------------------------------------------------------------
 -- Setup -----------------------------------------------------------------------
@@ -377,8 +379,13 @@ decodeModelDescription =
 
 getNewGame : GameType -> Cmd Msg
 getNewGame gameType =
+    let
+      url =  "/api/create/" ++ gameType.typName ++ (gameType.params
+        |> List.map (\p -> "/" ++ (juliaTypeToString p))
+        |> String.concat)
+    in
     Http.get
-        { url = "/api/create/" ++ gameType.typName
+        { url = url
         , expect = Http.expectJson (GotGameState gameType) Decode.value
         }
 
