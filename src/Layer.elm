@@ -5,6 +5,7 @@ module Layer exposing
     , HeatmapRendererConfig
     , Layer
     , LayerRenderer
+    , LinesLayerData
     , TokenRendererConfig
     , actionRenderer
     , heatmapLayerRenderer
@@ -20,6 +21,7 @@ The data is held in `Layer a` objects and you can use a matching
 
 -}
 
+import Image
 import List.Extra as List
 import Svg exposing (Svg)
 import Svg.Attributes
@@ -101,6 +103,15 @@ type DisplayLayer msg
     = DisplayLayerFloat (LayerRenderer Float msg) (Layer Float)
     | DisplayLayerString (LayerRenderer String msg) (Layer String)
     | DisplayLayerInt (LayerRenderer Int msg) (Layer Int)
+    | DisplayLayerLines LinesLayerData
+
+
+type alias LinesLayerData =
+    { data : List Image.LineSegment
+    , name : String
+    , width : Int
+    , height : Int
+    }
 
 
 renderDisplayLayer : DisplayLayer msg -> Svg msg
@@ -114,6 +125,9 @@ renderDisplayLayer layer =
 
         DisplayLayerInt renderer data ->
             renderOne renderer data
+
+        DisplayLayerLines linesData ->
+            renderOneLines linesData
 
 
 renderMany : List (DisplayLayer msg) -> Svg msg
@@ -162,6 +176,9 @@ widthDisplayLayer layer =
         DisplayLayerInt renderer data ->
             data.width * renderer.cellWidth
 
+        DisplayLayerLines data ->
+            data.width * 100
+
 
 heightDisplayLayer : DisplayLayer msg -> Int
 heightDisplayLayer layer =
@@ -174,6 +191,9 @@ heightDisplayLayer layer =
 
         DisplayLayerInt renderer data ->
             data.height * renderer.cellWidth
+
+        DisplayLayerLines data ->
+            data.height * 100
 
 
 
@@ -282,3 +302,41 @@ actionRenderer config =
                 Nothing ->
                     Svg.g [] []
     }
+
+
+
+-------------------------------------------------------------------------------
+-- Arbitrary lines ------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+renderOneLines : LinesLayerData -> Svg msg
+renderOneLines lines =
+    lines.data
+        |> List.map renderOneSegment
+        |> Svg.g []
+
+
+renderOneSegment : Image.LineSegment -> Svg msg
+renderOneSegment segment =
+    let
+        x1 =
+            segment.begin.x * 100
+
+        x2 =
+            segment.end.x * 100
+
+        y1 =
+            segment.begin.y * 100
+
+        y2 =
+            segment.end.y * 100
+    in
+    Svg.line
+        [ Svg.Attributes.x1 (String.fromFloat x1)
+        , Svg.Attributes.x2 (String.fromFloat x2)
+        , Svg.Attributes.y1 (String.fromFloat y1)
+        , Svg.Attributes.y2 (String.fromFloat y2)
+        , Svg.Attributes.style "stroke:rgb(0,0,0);stroke-width:5"
+        ]
+        []

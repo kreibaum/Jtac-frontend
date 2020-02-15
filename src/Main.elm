@@ -425,6 +425,14 @@ prepareImageLayer image layer =
                 , data = value.data
                 }
 
+        ImageLayerLines value ->
+            Layer.DisplayLayerLines
+                { data = value.data
+                , name = value.name
+                , width = image.value.width
+                , height = image.value.height
+                }
+
 
 
 --------------------------------------------------------------------------------

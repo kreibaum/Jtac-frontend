@@ -1,9 +1,12 @@
 module Image exposing
     ( ActionsValue
+    , Float2D
     , HeatmapValue
     , Image
     , ImageLayer(..)
     , ImageValue
+    , LineSegment
+    , LinesValue
     , TokensValue
     , decode
     , layerName
@@ -12,7 +15,7 @@ module Image exposing
 {-| Data type recieved from the server that is used to display a game.
 -}
 
-import Json.Decode as Decode
+import Json.Decode as Decode exposing (Decoder, field)
 
 
 type alias Image =
@@ -34,6 +37,7 @@ type ImageLayer
     = ImageLayerHeatmap HeatmapValue
     | ImageLayerTokens TokensValue
     | ImageLayerActions ActionsValue
+    | ImageLayerLines LinesValue
 
 
 type alias HeatmapValue =
@@ -58,6 +62,24 @@ type alias ActionsValue =
     }
 
 
+type alias LinesValue =
+    { data : List LineSegment
+    , name : String
+    }
+
+
+type alias LineSegment =
+    { begin : Float2D
+    , end : Float2D
+    }
+
+
+type alias Float2D =
+    { x : Float
+    , y : Float
+    }
+
+
 layerName : ImageLayer -> String
 layerName layer =
     case layer of
@@ -70,33 +92,36 @@ layerName layer =
         ImageLayerActions value ->
             value.name
 
+        ImageLayerLines value ->
+            value.name
+
 
 {-| Decodes a JSON object into an Image object.
 -}
-decode : Decode.Decoder Image
+decode : Decoder Image
 decode =
     Decode.map2 Image
-        (Decode.field "typ" Decode.string)
-        (Decode.field "value" decodeImageValue)
+        (field "typ" Decode.string)
+        (field "value" decodeImageValue)
 
 
-decodeImageValue : Decode.Decoder ImageValue
+decodeImageValue : Decoder ImageValue
 decodeImageValue =
     Decode.map5 ImageValue
-        (Decode.field "layers" (Decode.list decodeLayerData))
-        (Decode.field "width" Decode.int)
-        (Decode.field "height" Decode.int)
-        (Decode.field "name" Decode.string)
-        (Decode.field "value" Decode.float)
+        (field "layers" (Decode.list decodeLayerData))
+        (field "width" Decode.int)
+        (field "height" Decode.int)
+        (field "name" Decode.string)
+        (field "value" Decode.float)
 
 
-decodeLayerData : Decode.Decoder ImageLayer
+decodeLayerData : Decoder ImageLayer
 decodeLayerData =
-    Decode.field "typ" Decode.string
+    field "typ" Decode.string
         |> Decode.andThen decodeLayerDataHelp
 
 
-decodeLayerDataHelp : String -> Decode.Decoder ImageLayer
+decodeLayerDataHelp : String -> Decoder ImageLayer
 decodeLayerDataHelp typ =
     case typ of
         "heatmap" ->
@@ -108,48 +133,78 @@ decodeLayerDataHelp typ =
         "actions" ->
             decodeActions
 
+        "lines" ->
+            decodeLines
+
         _ ->
             Decode.fail ("No Layer Data decoder implemented for " ++ typ)
 
 
-decodeHeatmap : Decode.Decoder ImageLayer
+decodeHeatmap : Decoder ImageLayer
 decodeHeatmap =
     Decode.map ImageLayerHeatmap
-        (Decode.field "value" decodeHeatmapValue)
+        (field "value" decodeHeatmapValue)
 
 
-decodeHeatmapValue : Decode.Decoder HeatmapValue
+decodeHeatmapValue : Decoder HeatmapValue
 decodeHeatmapValue =
     Decode.map5 HeatmapValue
-        (Decode.field "data" (Decode.list Decode.float))
-        (Decode.field "name" Decode.string)
-        (Decode.field "style" Decode.string)
-        (Decode.field "min" Decode.float)
-        (Decode.field "max" Decode.float)
+        (field "data" (Decode.list Decode.float))
+        (field "name" Decode.string)
+        (field "style" Decode.string)
+        (field "min" Decode.float)
+        (field "max" Decode.float)
 
 
-decodeTokens : Decode.Decoder ImageLayer
+decodeTokens : Decoder ImageLayer
 decodeTokens =
     Decode.map ImageLayerTokens
-        (Decode.field "value" decodeTokensValue)
+        (field "value" decodeTokensValue)
 
 
-decodeTokensValue : Decode.Decoder TokensValue
+decodeTokensValue : Decoder TokensValue
 decodeTokensValue =
     Decode.map3 TokensValue
-        (Decode.field "data" (Decode.list Decode.string))
-        (Decode.field "name" Decode.string)
-        (Decode.field "style" Decode.string)
+        (field "data" (Decode.list Decode.string))
+        (field "name" Decode.string)
+        (field "style" Decode.string)
 
 
-decodeActions : Decode.Decoder ImageLayer
+decodeActions : Decoder ImageLayer
 decodeActions =
     Decode.map ImageLayerActions
-        (Decode.field "value" decodeActionsValue)
+        (field "value" decodeActionsValue)
 
 
-decodeActionsValue : Decode.Decoder ActionsValue
+decodeActionsValue : Decoder ActionsValue
 decodeActionsValue =
     Decode.map2 ActionsValue
-        (Decode.field "data" (Decode.list Decode.int))
-        (Decode.field "name" Decode.string)
+        (field "data" (Decode.list Decode.int))
+        (field "name" Decode.string)
+
+
+decodeFloat2D : Decoder Float2D
+decodeFloat2D =
+    Decode.map2 Float2D
+        (Decode.index 0 Decode.float)
+        (Decode.index 1 Decode.float)
+
+
+decodeLineSegment : Decoder LineSegment
+decodeLineSegment =
+    Decode.map2 LineSegment
+        (Decode.index 0 decodeFloat2D)
+        (Decode.index 1 decodeFloat2D)
+
+
+decodeLinesValue : Decoder LinesValue
+decodeLinesValue =
+    Decode.map2 LinesValue
+        (field "data" (Decode.list decodeLineSegment))
+        (field "name" Decode.string)
+
+
+decodeLines : Decoder ImageLayer
+decodeLines =
+    Decode.map ImageLayerLines
+        (field "value" decodeLinesValue)
