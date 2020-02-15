@@ -2,6 +2,7 @@ module Main exposing (main)
 
 import Browser exposing (Document)
 import Element exposing (Element, padding, spacing)
+import Element.Background as Background
 import Element.Events as Events
 import Element.Font as Font
 import Element.Input as Input
@@ -29,8 +30,8 @@ type Msg
     = NoOp
     | GotGames (Result Http.Error (List GameType))
     | GotModels (Result Http.Error (List ModelDescription))
-    | RequestImage ImageRequest
-    | GotImage (Result Http.Error Image)
+    | RequestImage GameState ImageRequest
+    | GotImage (Result Http.Error GameWithImage)
     | RequestGameState GameType
     | GotGameState GameType (Result Http.Error Value)
     | SelectGameType GameType
@@ -42,6 +43,7 @@ type Msg
     | InputPower String
     | InputTemperature String
     | InputExploration String
+    | SetSelected Int GameWithImage
 
 
 type alias Model =
@@ -50,6 +52,8 @@ type alias Model =
     , selectedGameType : Maybe GameType
     , models : WebData (List ModelDescription)
     , selectedModel : Maybe String
+    , gameStateList : List GameWithImage
+    , selectedIndex : Int
     , gameState : WebData GameState
     , image : WebData Image
     , lastAction : Int
@@ -80,10 +84,17 @@ type alias GameState =
     }
 
 
+type alias GameWithImage =
+    { gameState : GameState
+    , image : Image
+    }
+
+
 type JuliaTypeParameter
     = JuliaInt64 Int
 
 
+juliaTypeToString : JuliaTypeParameter -> String
 juliaTypeToString param =
     case param of
         JuliaInt64 value ->
@@ -103,6 +114,8 @@ initModel =
     , selectedGameType = Nothing
     , models = RemoteData.Loading
     , selectedModel = Nothing
+    , gameStateList = []
+    , selectedIndex = -1
     , gameState = RemoteData.NotAsked
     , image = RemoteData.Loading
     , lastAction = -1
@@ -115,7 +128,7 @@ initModel =
 
 init : a -> ( Model, Cmd Msg )
 init _ =
-    ( initModel, Cmd.batch [ getGames, getModels, getDummyImage ] )
+    ( initModel, Cmd.batch [ getGames, getModels ] )
 
 
 subscriptions : Model -> Sub Msg
@@ -141,11 +154,21 @@ update msg model =
         GotModels response ->
             ( { model | models = RemoteData.fromResult response }, Cmd.none )
 
-        RequestImage request ->
-            ( { model | image = RemoteData.Loading }, getImage request )
+        RequestImage gameState request ->
+            ( { model | image = RemoteData.Loading }, getImage gameState request )
 
         GotImage response ->
-            ( { model | image = RemoteData.fromResult response }, Cmd.none )
+            case response of
+                Ok gameWithImage ->
+                    ( { model
+                        | image = RemoteData.Success gameWithImage.image
+                        , gameStateList = List.append model.gameStateList [ gameWithImage ]
+                      }
+                    , Cmd.none
+                    )
+
+                Err e ->
+                    ( { model | image = RemoteData.Failure e }, Cmd.none )
 
         RequestGameState gameType ->
             ( { model | gameState = RemoteData.Loading }, getNewGame gameType )
@@ -180,18 +203,20 @@ update msg model =
             ( { model | hiddenLayers = Set.remove name model.hiddenLayers }, Cmd.none )
 
         GotGameTurn gameType response ->
-            ( { model
-                | gameState =
-                    RemoteData.fromResult response
-                        |> RemoteData.map (\value -> { value = value, gameType = gameType })
-              }
-            , case response of
+            let
+                gameState value =
+                    { value = value, gameType = gameType }
+            in
+            case response of
                 Ok value ->
-                    getImage (buildImageRequest model value)
+                    ( { model
+                        | gameState = RemoteData.Success (gameState value)
+                      }
+                    , getImage (gameState value) (buildImageRequest model value)
+                    )
 
-                _ ->
-                    Cmd.none
-            )
+                Err e ->
+                    ( { model | gameState = RemoteData.Failure e }, Cmd.none )
 
         InputPower text ->
             ( { model | inputPower = text }, Cmd.none )
@@ -201,6 +226,15 @@ update msg model =
 
         InputExploration text ->
             ( { model | inputExploration = text }, Cmd.none )
+
+        SetSelected index gameWithImage ->
+            ( { model
+                | selectedIndex = index
+                , gameState = RemoteData.Success gameWithImage.gameState
+                , image = RemoteData.Success gameWithImage.image
+              }
+            , Cmd.none
+            )
 
 
 buildImageRequest : Model -> Value -> ImageRequest
@@ -233,7 +267,37 @@ elmUiLayout model =
 
 view : Model -> Element Msg
 view model =
-    Element.column [ padding 10, spacing 10 ]
+    Element.row [ Element.width Element.fill ]
+        [ centerView model
+        , sidebarView model
+        ]
+
+
+sidebarView : Model -> Element Msg
+sidebarView model =
+    Element.column [ Element.alignRight, Element.alignTop ]
+        (model.gameStateList
+            |> List.indexedMap (gameButtonInSidebar model)
+        )
+
+
+gameButtonInSidebar : Model -> Int -> GameWithImage -> Element Msg
+gameButtonInSidebar model i state =
+    let
+        attrs =
+            if model.selectedIndex == i then
+                [ Background.color (Element.rgb255 200 200 200) ]
+
+            else
+                []
+    in
+    Element.el (List.append [ padding 10, Events.onClick (SetSelected i state) ] attrs)
+        (Element.text state.gameState.gameType.typName)
+
+
+centerView : Model -> Element Msg
+centerView model =
+    Element.column [ padding 10, spacing 10, Element.width Element.fill ]
         [ Element.row [ spacing 10 ]
             [ Input.text []
                 { onChange = InputPower
@@ -270,7 +334,7 @@ gameStateInformation model value =
                 [ Element.text "We have a game state."
                 , Element.text game.gameType.typName
                 , Element.el
-                    [ Events.onClick (RequestImage (buildImageRequest model game.value)) ]
+                    [ Events.onClick (RequestImage game (buildImageRequest model game.value)) ]
                     (Element.text "Evaluate position")
                 ]
         )
@@ -513,12 +577,12 @@ type alias ImageRequest =
     }
 
 
-getImage : ImageRequest -> Cmd Msg
-getImage config =
+getImage : GameState -> ImageRequest -> Cmd Msg
+getImage gameState config =
     Http.post
         { url = "/api/apply/visual"
         , body = Http.jsonBody (encodeImageRequest config)
-        , expect = Http.expectJson GotImage Image.decode
+        , expect = Http.expectJson (Result.map (\image -> { image = image, gameState = gameState }) >> GotImage) Image.decode
         }
 
 
@@ -531,14 +595,6 @@ encodeImageRequest record =
         , ( "temperature", Encode.float <| record.temperature )
         , ( "exploration", Encode.float <| record.exploration )
         ]
-
-
-getDummyImage : Cmd Msg
-getDummyImage =
-    Http.get
-        { url = "/api/dummyimage"
-        , expect = Http.expectJson GotImage Image.decode
-        }
 
 
 type alias TurnRequest =
