@@ -28,8 +28,7 @@ main =
 
 
 type Msg
-    = NoOp
-    | GotGames (Result Http.Error (List GameType))
+    = GotGames (Result Http.Error (List GameType))
     | GotModels (Result Http.Error (List ModelDescription))
     | RequestImage GameState ImageRequest
     | GotImage (Result Http.Error GameWithImage)
@@ -44,7 +43,7 @@ type Msg
     | InputPower String
     | InputTemperature String
     | InputExploration String
-    | SetSelected Int
+    | SetSelected Int Bool
 
 
 type OuterModel
@@ -67,7 +66,6 @@ type alias Model =
     , gameStateList : List GameWithImage
     , isLoadingNewState : Bool
     , errorLog : List String
-    , selectedIndex : Int
     , lastAction : Int
     , hiddenLayers : Set String
     , inputPower : String
@@ -99,6 +97,7 @@ type alias GameState =
 type alias GameWithImage =
     { gameState : GameState
     , image : Image
+    , selected : Bool
     }
 
 
@@ -119,9 +118,15 @@ juliaTypeToString param =
 --------------------------------------------------------------------------------
 
 
-getSelectedGame : Model -> Maybe GameWithImage
-getSelectedGame model =
-    List.getAt model.selectedIndex model.gameStateList
+getSelectedGames : Model -> List GameWithImage
+getSelectedGames model =
+    model.gameStateList
+        |> List.filter .selected
+
+
+removeSelection : List GameWithImage -> List GameWithImage
+removeSelection list =
+    List.map (\s -> { s | selected = False }) list
 
 
 
@@ -161,7 +166,6 @@ initModel gameTypes models =
     , gameStateList = []
     , isLoadingNewState = False
     , errorLog = []
-    , selectedIndex = -1
     , lastAction = -1
     , hiddenLayers = Set.empty
     , inputPower = "500"
@@ -221,9 +225,6 @@ updateOuter msg outerModel =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        NoOp ->
-            ( model, Cmd.none )
-
         GotGames _ ->
             Debug.todo "Handled earlier, need to refactor message type to remove this branch."
 
@@ -237,8 +238,7 @@ update msg model =
             case response of
                 Ok gameWithImage ->
                     ( { model
-                        | gameStateList = List.append model.gameStateList [ gameWithImage ]
-                        , selectedIndex = List.length model.gameStateList
+                        | gameStateList = List.append (removeSelection model.gameStateList) [ gameWithImage ]
                         , isLoadingNewState = False
                       }
                     , Cmd.none
@@ -292,9 +292,9 @@ update msg model =
         InputExploration text ->
             ( { model | inputExploration = text }, Cmd.none )
 
-        SetSelected index ->
+        SetSelected index isSelected ->
             ( { model
-                | selectedIndex = index
+                | gameStateList = List.updateAt index (\s -> { s | selected = isSelected }) model.gameStateList
               }
             , Cmd.none
             )
@@ -351,23 +351,22 @@ view model =
 
 sidebarView : Model -> Element Msg
 sidebarView model =
-    Element.column [ Element.alignRight, Element.alignTop ]
-        (model.gameStateList
-            |> List.indexedMap (gameButtonInSidebar model)
-        )
+    model.gameStateList
+        |> List.indexedMap gameButtonInSidebar
+        |> Element.column [ Element.alignRight, Element.alignTop ]
 
 
-gameButtonInSidebar : Model -> Int -> GameWithImage -> Element Msg
-gameButtonInSidebar model i state =
+gameButtonInSidebar : Int -> GameWithImage -> Element Msg
+gameButtonInSidebar i state =
     let
         attrs =
-            if model.selectedIndex == i then
+            if state.selected then
                 [ Background.color (Element.rgb255 200 200 200) ]
 
             else
                 []
     in
-    Element.el (List.append [ padding 10, Events.onClick (SetSelected i) ] attrs)
+    Element.el (List.append [ padding 10, Events.onClick (SetSelected i (not state.selected)) ] attrs)
         (Element.text state.gameState.gameType.typName)
 
 
@@ -397,25 +396,7 @@ centerView model =
         , listOfGames model
         , listOfModels model
         , gameStateInformation model
-        , Element.text ("Last action: " ++ String.fromInt model.lastAction)
-        , imageView model
         ]
-
-
-gameStateInformation : Model -> Element Msg
-gameStateInformation model =
-    case getSelectedGame model of
-        Just gameWithImage ->
-            Element.row [ spacing 10 ]
-                [ Element.text "We have a game state."
-                , Element.text gameWithImage.gameState.gameType.typName
-                , Element.el
-                    [ Events.onClick (RequestImage gameWithImage.gameState (buildImageRequest model gameWithImage.gameState.value)) ]
-                    (Element.text "Evaluate position")
-                ]
-
-        Nothing ->
-            Element.text "No state selected."
 
 
 listOfGames : Model -> Element Msg
@@ -454,41 +435,44 @@ chooseButton writer event current label =
         Element.el [ Events.onClick (event label) ] (Element.text (writer label))
 
 
-imageView : Model -> Element Msg
-imageView model =
-    case getSelectedGame model of
-        Just gameWithImage ->
-            imageViewInner model gameWithImage.image
+oneGameWithImage : Model -> GameWithImage -> Element Msg
+oneGameWithImage model gameWithImage =
+    Element.column [ spacing 10 ]
+        [ Element.text gameWithImage.gameState.gameType.typName
+        , Element.el
+            [ Events.onClick (RequestImage gameWithImage.gameState (buildImageRequest model gameWithImage.gameState.value)) ]
+            (Element.text "Evaluate position")
+        , imageViewInner model gameWithImage
+        ]
 
-        Nothing ->
-            Element.text "No image selected."
+
+gameStateInformation : Model -> Element Msg
+gameStateInformation model =
+    getSelectedGames model
+        |> List.map (oneGameWithImage model)
+        |> Element.column [ spacing 10 ]
 
 
-imageViewInner : Model -> Image -> Element Msg
-imageViewInner model image =
+imageViewInner : Model -> GameWithImage -> Element Msg
+imageViewInner model gameWithImage =
     Element.row [ spacing 10 ]
-        [ Element.el [] (prepareImage model image |> renderMany |> Element.html)
-            |> Element.map (actionToMsg model)
+        [ Element.el [] (prepareImage model gameWithImage.image |> renderMany |> Element.html)
+            |> Element.map (actionToMsg gameWithImage)
         , Element.el [ Element.alignTop ] (Element.text "Layers")
-        , image.value.layers
+        , gameWithImage.image.value.layers
             |> List.map Image.layerName
             |> List.map (layerName model)
             |> Element.column [ spacing 10 ]
         ]
 
 
-actionToMsg : Model -> Int -> Msg
-actionToMsg model action =
-    case getSelectedGame model of
-        Just gameWithImage ->
-            PostGameTurn
-                { game = gameWithImage.gameState.value
-                , action = action
-                , gameType = gameWithImage.gameState.gameType
-                }
-
-        Nothing ->
-            NoOp
+actionToMsg : GameWithImage -> Int -> Msg
+actionToMsg gameWithImage action =
+    PostGameTurn
+        { game = gameWithImage.gameState.value
+        , action = action
+        , gameType = gameWithImage.gameState.gameType
+        }
 
 
 layerName : Model -> String -> Element Msg
@@ -641,7 +625,7 @@ getImage gameState config =
     Http.post
         { url = "/api/apply/visual"
         , body = Http.jsonBody (encodeImageRequest config)
-        , expect = Http.expectJson (Result.map (\image -> { image = image, gameState = gameState }) >> GotImage) Image.decode
+        , expect = Http.expectJson (Result.map (\image -> { image = image, gameState = gameState, selected = True }) >> GotImage) Image.decode
         }
 
 
