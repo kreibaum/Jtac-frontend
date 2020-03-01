@@ -12,6 +12,7 @@ import Image exposing (Image, ImageLayer(..))
 import Json.Decode as Decode exposing (Value)
 import Json.Encode as Encode
 import Layer exposing (DisplayLayer, HeatmapColor(..), actionRenderer, heatmapLayerRenderer, renderMany, tokenRenderer)
+import List.Extra as List
 import RemoteData exposing (WebData)
 import Set exposing (Set)
 
@@ -33,7 +34,7 @@ type Msg
     | RequestImage GameState ImageRequest
     | GotImage (Result Http.Error GameWithImage)
     | RequestGameState GameType
-    | GotGameState GameType (Result Http.Error Value)
+      --| GotGameState GameType (Result Http.Error Value)
     | SelectGameType GameType
     | SelectModel String
     | PostGameTurn TurnRequest
@@ -43,7 +44,7 @@ type Msg
     | InputPower String
     | InputTemperature String
     | InputExploration String
-    | SetSelected Int GameWithImage
+    | SetSelected Int
 
 
 type OuterModel
@@ -64,9 +65,9 @@ type alias Model =
     , models : List ModelDescription
     , selectedModel : Maybe String
     , gameStateList : List GameWithImage
+    , isLoadingNewState : Bool
+    , errorLog : List String
     , selectedIndex : Int
-    , gameState : WebData GameState
-    , image : WebData Image
     , lastAction : Int
     , hiddenLayers : Set String
     , inputPower : String
@@ -114,6 +115,17 @@ juliaTypeToString param =
 
 
 --------------------------------------------------------------------------------
+-- Optional Getters ------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+getSelectedGame : Model -> Maybe GameWithImage
+getSelectedGame model =
+    List.getAt model.selectedIndex model.gameStateList
+
+
+
+--------------------------------------------------------------------------------
 -- Setup -----------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
@@ -147,9 +159,9 @@ initModel gameTypes models =
     , models = models
     , selectedModel = Nothing
     , gameStateList = []
+    , isLoadingNewState = False
+    , errorLog = []
     , selectedIndex = -1
-    , gameState = RemoteData.NotAsked
-    , image = RemoteData.Loading
     , lastAction = -1
     , hiddenLayers = Set.empty
     , inputPower = "500"
@@ -219,37 +231,28 @@ update msg model =
             Debug.todo "Handled earlier, need to refactor message type to remove this branch."
 
         RequestImage gameState request ->
-            ( { model | image = RemoteData.Loading }, getImage gameState request )
+            ( { model | isLoadingNewState = True }, getImage gameState request )
 
         GotImage response ->
             case response of
                 Ok gameWithImage ->
                     ( { model
-                        | image = RemoteData.Success gameWithImage.image
-                        , gameStateList = List.append model.gameStateList [ gameWithImage ]
+                        | gameStateList = List.append model.gameStateList [ gameWithImage ]
+                        , selectedIndex = List.length model.gameStateList
+                        , isLoadingNewState = False
                       }
                     , Cmd.none
                     )
 
-                Err e ->
-                    ( { model | image = RemoteData.Failure e }, Cmd.none )
+                Err _ ->
+                    ( { model | errorLog = List.append model.errorLog [ "Error while loading image" ] }, Cmd.none )
 
         RequestGameState gameType ->
-            ( { model | gameState = RemoteData.Loading }, getNewGame gameType )
-
-        GotGameState gameType response ->
-            ( { model
-                | gameState =
-                    RemoteData.fromResult response
-                        |> RemoteData.map (\value -> { value = value, gameType = gameType })
-              }
-            , Cmd.none
-            )
+            ( { model | isLoadingNewState = True }, getNewGame gameType )
 
         SelectGameType newType ->
             ( { model
                 | selectedGameType = Just newType
-                , gameState = RemoteData.NotAsked
               }
             , Cmd.none
             )
@@ -273,14 +276,12 @@ update msg model =
             in
             case response of
                 Ok value ->
-                    ( { model
-                        | gameState = RemoteData.Success (gameState value)
-                      }
+                    ( model
                     , getImage (gameState value) (buildImageRequest model value)
                     )
 
-                Err e ->
-                    ( { model | gameState = RemoteData.Failure e }, Cmd.none )
+                Err _ ->
+                    ( { model | errorLog = List.append model.errorLog [ "Error while loading game" ] }, Cmd.none )
 
         InputPower text ->
             ( { model | inputPower = text }, Cmd.none )
@@ -291,11 +292,9 @@ update msg model =
         InputExploration text ->
             ( { model | inputExploration = text }, Cmd.none )
 
-        SetSelected index gameWithImage ->
+        SetSelected index ->
             ( { model
                 | selectedIndex = index
-                , gameState = RemoteData.Success gameWithImage.gameState
-                , image = RemoteData.Success gameWithImage.image
               }
             , Cmd.none
             )
@@ -368,7 +367,7 @@ gameButtonInSidebar model i state =
             else
                 []
     in
-    Element.el (List.append [ padding 10, Events.onClick (SetSelected i state) ] attrs)
+    Element.el (List.append [ padding 10, Events.onClick (SetSelected i) ] attrs)
         (Element.text state.gameState.gameType.typName)
 
 
@@ -397,25 +396,26 @@ centerView model =
             ]
         , listOfGames model
         , listOfModels model
-        , gameStateInformation model model.gameState
+        , gameStateInformation model
         , Element.text ("Last action: " ++ String.fromInt model.lastAction)
         , imageView model
         ]
 
 
-gameStateInformation : Model -> WebData GameState -> Element Msg
-gameStateInformation model value =
-    webDataEasyWrapper
-        (\game ->
+gameStateInformation : Model -> Element Msg
+gameStateInformation model =
+    case getSelectedGame model of
+        Just gameWithImage ->
             Element.row [ spacing 10 ]
                 [ Element.text "We have a game state."
-                , Element.text game.gameType.typName
+                , Element.text gameWithImage.gameState.gameType.typName
                 , Element.el
-                    [ Events.onClick (RequestImage game (buildImageRequest model game.value)) ]
+                    [ Events.onClick (RequestImage gameWithImage.gameState (buildImageRequest model gameWithImage.gameState.value)) ]
                     (Element.text "Evaluate position")
                 ]
-        )
-        value
+
+        Nothing ->
+            Element.text "No state selected."
 
 
 listOfGames : Model -> Element Msg
@@ -454,25 +454,14 @@ chooseButton writer event current label =
         Element.el [ Events.onClick (event label) ] (Element.text (writer label))
 
 
-webDataEasyWrapper : (a -> Element Msg) -> WebData a -> Element Msg
-webDataEasyWrapper ifPresent data =
-    case data of
-        RemoteData.Success success ->
-            ifPresent success
-
-        RemoteData.Failure _ ->
-            Element.text "Http error"
-
-        RemoteData.Loading ->
-            Element.text "Loading"
-
-        RemoteData.NotAsked ->
-            Element.text "Not asked"
-
-
 imageView : Model -> Element Msg
 imageView model =
-    webDataEasyWrapper (imageViewInner model) model.image
+    case getSelectedGame model of
+        Just gameWithImage ->
+            imageViewInner model gameWithImage.image
+
+        Nothing ->
+            Element.text "No image selected."
 
 
 imageViewInner : Model -> Image -> Element Msg
@@ -490,15 +479,16 @@ imageViewInner model image =
 
 actionToMsg : Model -> Int -> Msg
 actionToMsg model action =
-    RemoteData.unwrap NoOp
-        (\gameState ->
+    case getSelectedGame model of
+        Just gameWithImage ->
             PostGameTurn
-                { game = gameState.value
+                { game = gameWithImage.gameState.value
                 , action = action
-                , gameType = gameState.gameType
+                , gameType = gameWithImage.gameState.gameType
                 }
-        )
-        model.gameState
+
+        Nothing ->
+            NoOp
 
 
 layerName : Model -> String -> Element Msg
@@ -633,7 +623,7 @@ getNewGame gameType =
     in
     Http.get
         { url = url
-        , expect = Http.expectJson (GotGameState gameType) Decode.value
+        , expect = Http.expectJson (GotGameTurn gameType) Decode.value
         }
 
 
