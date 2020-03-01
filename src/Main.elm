@@ -3,6 +3,7 @@ module Main exposing (main)
 import Browser exposing (Document)
 import Element exposing (Element, padding, spacing)
 import Element.Background as Background
+import Element.Border as Border
 import Element.Events as Events
 import Element.Font as Font
 import Element.Input as Input
@@ -33,7 +34,6 @@ type Msg
     | RequestImage GameState ImageRequest
     | GotImage (Result Http.Error GameWithImage)
     | RequestGameState GameType
-      --| GotGameState GameType (Result Http.Error Value)
     | SelectGameType GameType
     | SelectModel String
     | PostGameTurn TurnRequest
@@ -44,6 +44,7 @@ type Msg
     | InputTemperature String
     | InputExploration String
     | SetSelected Int Bool
+    | SetGridWidth Int
 
 
 type OuterModel
@@ -72,6 +73,7 @@ type alias Model =
     , inputPower : String
     , inputTemperature : String
     , inputExploration : String
+    , gridWidth : Int
     }
 
 
@@ -185,6 +187,7 @@ initModel gameTypes models =
     , inputPower = "500"
     , inputTemperature = "0.5"
     , inputExploration = "1.5"
+    , gridWidth = 4
     }
 
 
@@ -314,6 +317,9 @@ update msg model =
             , Cmd.none
             )
 
+        SetGridWidth newWidth ->
+            ( { model | gridWidth = newWidth }, Cmd.none )
+
 
 buildImageRequest : Model -> Value -> ImageRequest
 buildImageRequest model value =
@@ -407,6 +413,15 @@ centerView model =
                 , placeholder = Nothing
                 , label = Input.labelAbove [ Element.centerY ] (Element.text "Exploration")
                 }
+            , Input.slider []
+                { onChange = round >> SetGridWidth
+                , label = Input.labelAbove [ Element.centerY ] (Element.text "Grid Width")
+                , min = 1
+                , max = 6
+                , value = toFloat model.gridWidth
+                , thumb = Input.defaultThumb
+                , step = Just 1
+                }
             ]
         , listOfGames model
         , listOfModels model
@@ -475,7 +490,7 @@ gameStateInformation : Model -> Element Msg
 gameStateInformation model =
     getSelectedGames model
         |> List.map (oneGameWithImage model)
-        |> Element.column [ spacing 10 ]
+        |> easyGrid model.gridWidth [ spacing 10 ]
 
 
 imageViewInner : Model -> GameWithImage -> Element Msg
@@ -680,3 +695,24 @@ postTurn config =
         , body = Http.jsonBody (encodeTurnRequest config)
         , expect = Http.expectJson (GotGameTurn config.gameType) Decode.value
         }
+
+
+
+--------------------------------------------------------------------------------
+-- View Components -------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- View components should not depend on any information that is specific to this
+-- application. I am planing to move this whole block into a separate file when
+-- all components that I have identified are moved into this block.
+
+
+{-| Creates a grid with the given amount of columns. You can pass in a list of
+attributes which will be applied to both the column and row element. Typically
+you would pass in `[ spacing 5 ]` in here.
+-}
+easyGrid : Int -> List (Element.Attribute msg) -> List (Element msg) -> Element msg
+easyGrid columnCount attributes list =
+    list
+        |> List.greedyGroupsOf columnCount
+        |> List.map (\group -> Element.row attributes group)
+        |> Element.column attributes
