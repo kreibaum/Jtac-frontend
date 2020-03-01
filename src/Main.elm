@@ -47,8 +47,7 @@ type Msg
 
 
 type alias Model =
-    { pageTitle : String
-    , gameTypes : WebData (List GameType)
+    { gameTypes : WebData (List GameType)
     , selectedGameType : Maybe GameType
     , models : WebData (List ModelDescription)
     , selectedModel : Maybe String
@@ -109,8 +108,7 @@ juliaTypeToString param =
 
 initModel : Model
 initModel =
-    { pageTitle = "Hello, World!"
-    , gameTypes = RemoteData.Loading
+    { gameTypes = RemoteData.Loading
     , selectedGameType = Nothing
     , models = RemoteData.Loading
     , selectedModel = Nothing
@@ -255,7 +253,7 @@ buildImageRequest model value =
 
 documentView : Model -> Document Msg
 documentView model =
-    { title = model.pageTitle
+    { title = "Jtac analysis frontend"
     , body = [ elmUiLayout model ]
     }
 
