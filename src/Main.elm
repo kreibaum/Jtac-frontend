@@ -16,12 +16,12 @@ import RemoteData exposing (WebData)
 import Set exposing (Set)
 
 
-main : Program () Model Msg
+main : Program () OuterModel Msg
 main =
     Browser.document
-        { init = init
+        { init = initOuter
         , view = documentView
-        , update = update
+        , update = updateOuter
         , subscriptions = subscriptions
         }
 
@@ -46,10 +46,22 @@ type Msg
     | SetSelected Int GameWithImage
 
 
-type alias Model =
+type OuterModel
+    = LoadingStaticInfo LoadingModel
+    | WebsiteReady Model
+    | ErrorWhileLoading String
+
+
+type alias LoadingModel =
     { gameTypes : WebData (List GameType)
-    , selectedGameType : Maybe GameType
     , models : WebData (List ModelDescription)
+    }
+
+
+type alias Model =
+    { gameTypes : List GameType
+    , selectedGameType : Maybe GameType
+    , models : List ModelDescription
     , selectedModel : Maybe String
     , gameStateList : List GameWithImage
     , selectedIndex : Int
@@ -106,11 +118,33 @@ juliaTypeToString param =
 --------------------------------------------------------------------------------
 
 
-initModel : Model
-initModel =
-    { gameTypes = RemoteData.Loading
+{-| Takes a loading model and tries to upgrade it to a regular model.
+-}
+tryInit : LoadingModel -> OuterModel
+tryInit loadingModel =
+    let
+        readyModel =
+            RemoteData.map2 initModel loadingModel.gameTypes loadingModel.models
+    in
+    case readyModel of
+        RemoteData.Success model ->
+            WebsiteReady model
+
+        RemoteData.Loading ->
+            LoadingStaticInfo loadingModel
+
+        RemoteData.Failure _ ->
+            ErrorWhileLoading "Error while loading static data from server."
+
+        RemoteData.NotAsked ->
+            ErrorWhileLoading "Init function did not ask for data."
+
+
+initModel : List GameType -> List ModelDescription -> Model
+initModel gameTypes models =
+    { gameTypes = gameTypes
     , selectedGameType = Nothing
-    , models = RemoteData.Loading
+    , models = models
     , selectedModel = Nothing
     , gameStateList = []
     , selectedIndex = -1
@@ -124,12 +158,17 @@ initModel =
     }
 
 
-init : a -> ( Model, Cmd Msg )
-init _ =
-    ( initModel, Cmd.batch [ getGames, getModels ] )
+initOuter : a -> ( OuterModel, Cmd Msg )
+initOuter _ =
+    ( LoadingStaticInfo
+        { gameTypes = RemoteData.Loading
+        , models = RemoteData.Loading
+        }
+    , Cmd.batch [ getGames, getModels ]
+    )
 
 
-subscriptions : Model -> Sub Msg
+subscriptions : OuterModel -> Sub Msg
 subscriptions _ =
     Sub.none
 
@@ -140,17 +179,44 @@ subscriptions _ =
 --------------------------------------------------------------------------------
 
 
+{-| Wrapper around the update function where we handle the case that the website is not fully loaded yet.
+-}
+updateOuter : Msg -> OuterModel -> ( OuterModel, Cmd Msg )
+updateOuter msg outerModel =
+    case outerModel of
+        LoadingStaticInfo loadingModel ->
+            case msg of
+                GotGames response ->
+                    ( tryInit { loadingModel | gameTypes = RemoteData.fromResult response }, Cmd.none )
+
+                GotModels response ->
+                    ( tryInit { loadingModel | models = RemoteData.fromResult response }, Cmd.none )
+
+                _ ->
+                    ( ErrorWhileLoading "Unexpected Message recieved", Cmd.none )
+
+        WebsiteReady model ->
+            let
+                ( newModel, cmd ) =
+                    update msg model
+            in
+            ( WebsiteReady newModel, cmd )
+
+        ErrorWhileLoading _ ->
+            ( outerModel, Cmd.none )
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         NoOp ->
             ( model, Cmd.none )
 
-        GotGames response ->
-            ( { model | gameTypes = RemoteData.fromResult response }, Cmd.none )
+        GotGames _ ->
+            Debug.todo "Handled earlier, need to refactor message type to remove this branch."
 
-        GotModels response ->
-            ( { model | models = RemoteData.fromResult response }, Cmd.none )
+        GotModels _ ->
+            Debug.todo "Handled earlier, need to refactor message type to remove this branch."
 
         RequestImage gameState request ->
             ( { model | image = RemoteData.Loading }, getImage gameState request )
@@ -251,16 +317,29 @@ buildImageRequest model value =
 --------------------------------------------------------------------------------
 
 
-documentView : Model -> Document Msg
-documentView model =
+documentView : OuterModel -> Document Msg
+documentView outerModel =
     { title = "Jtac analysis frontend"
-    , body = [ elmUiLayout model ]
+    , body = [ elmUiLayout outerModel ]
     }
 
 
-elmUiLayout : Model -> Html Msg
-elmUiLayout model =
-    Element.layout [] (view model)
+elmUiLayout : OuterModel -> Html Msg
+elmUiLayout outerModel =
+    Element.layout []
+        (case outerModel of
+            LoadingStaticInfo _ ->
+                Element.text "Loading ..."
+
+            WebsiteReady model ->
+                view model
+
+            ErrorWhileLoading errorMessage ->
+                Element.column []
+                    [ Element.text "Error:"
+                    , Element.text errorMessage
+                    ]
+        )
 
 
 view : Model -> Element Msg
@@ -343,15 +422,11 @@ listOfGames : Model -> Element Msg
 listOfGames model =
     Element.row [ spacing 10 ]
         [ Element.text "Supported Game Types:"
-        , webDataEasyWrapper
-            (\list ->
-                Element.row [ spacing 10 ]
-                    (List.map
-                        (chooseButton .typName SelectGameType model.selectedGameType)
-                        list
-                    )
+        , Element.row [ spacing 10 ]
+            (List.map
+                (chooseButton .typName SelectGameType model.selectedGameType)
+                model.gameTypes
             )
-            model.gameTypes
         , case model.selectedGameType of
             Just gameType ->
                 Element.el [ Events.onClick (RequestGameState gameType) ] (Element.text "Create Game")
@@ -363,15 +438,11 @@ listOfGames model =
 
 listOfModels : Model -> Element Msg
 listOfModels model =
-    webDataEasyWrapper
-        (\list ->
-            Element.row [ spacing 10 ]
-                (List.map
-                    (\m -> chooseButton (\x -> x) SelectModel model.selectedModel m.name)
-                    list
-                )
+    Element.row [ spacing 10 ]
+        (List.map
+            (\m -> chooseButton (\x -> x) SelectModel model.selectedModel m.name)
+            model.models
         )
-        model.models
 
 
 chooseButton : (a -> String) -> (a -> Msg) -> Maybe a -> a -> Element Msg
