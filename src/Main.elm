@@ -67,6 +67,7 @@ type alias Model =
     , isLoadingNewState : Bool
     , errorLog : List String
     , lastAction : Int
+    , allLayers : Set String
     , hiddenLayers : Set String
     , inputPower : String
     , inputTemperature : String
@@ -129,6 +130,18 @@ removeSelection list =
     List.map (\s -> { s | selected = False }) list
 
 
+copyLayerInformation : Image -> Model -> Model
+copyLayerInformation image model =
+    let
+        newLayerNames =
+            image.value.layers
+                |> List.map Image.layerName
+                |> Set.fromList
+                |> Set.union model.allLayers
+    in
+    { model | allLayers = newLayerNames }
+
+
 
 --------------------------------------------------------------------------------
 -- Setup -----------------------------------------------------------------------
@@ -167,6 +180,7 @@ initModel gameTypes models =
     , isLoadingNewState = False
     , errorLog = []
     , lastAction = -1
+    , allLayers = Set.empty
     , hiddenLayers = Set.empty
     , inputPower = "500"
     , inputTemperature = "0.5"
@@ -241,6 +255,7 @@ update msg model =
                         | gameStateList = List.append (removeSelection model.gameStateList) [ gameWithImage ]
                         , isLoadingNewState = False
                       }
+                        |> copyLayerInformation gameWithImage.image
                     , Cmd.none
                     )
 
@@ -395,6 +410,7 @@ centerView model =
             ]
         , listOfGames model
         , listOfModels model
+        , listOfLayers model
         , gameStateInformation model
         ]
 
@@ -435,6 +451,15 @@ chooseButton writer event current label =
         Element.el [ Events.onClick (event label) ] (Element.text (writer label))
 
 
+listOfLayers : Model -> Element Msg
+listOfLayers model =
+    model.allLayers
+        |> Set.toList
+        |> List.sort
+        |> List.map (layerName model)
+        |> Element.row [ spacing 10 ]
+
+
 oneGameWithImage : Model -> GameWithImage -> Element Msg
 oneGameWithImage model gameWithImage =
     Element.column [ spacing 10 ]
@@ -455,15 +480,8 @@ gameStateInformation model =
 
 imageViewInner : Model -> GameWithImage -> Element Msg
 imageViewInner model gameWithImage =
-    Element.row [ spacing 10 ]
-        [ Element.el [] (prepareImage model gameWithImage.image |> renderMany |> Element.html)
-            |> Element.map (actionToMsg gameWithImage)
-        , Element.el [ Element.alignTop ] (Element.text "Layers")
-        , gameWithImage.image.value.layers
-            |> List.map Image.layerName
-            |> List.map (layerName model)
-            |> Element.column [ spacing 10 ]
-        ]
+    Element.el [] (prepareImage model gameWithImage.image |> renderMany |> Element.html)
+        |> Element.map (actionToMsg gameWithImage)
 
 
 actionToMsg : GameWithImage -> Int -> Msg
